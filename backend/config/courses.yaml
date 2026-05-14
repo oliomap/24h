@@ -1,0 +1,50 @@
+# 37 courses for the 24h-OL Thüringen 2026 (Heyda).
+# Source: Programmheft 2026 page 12.
+# type: SF=Startbahn, TH=Themenbahn, E=Tagbahn einfach, H=Tagbahn schwer,
+#       ST=kurze Dämmerungsbahn, LT=lange Dämmerungsbahn,
+#       EN=Nachtbahn einfach, HN=Nachtbahn schwer, FF=Schlussbahn.
+
+- {code: SF,  type: SF, length_km: 4.2,  climb_m: 95,  controls: 15}
+
+- {code: TH1, type: TH, length_km: 2.6,  climb_m: 35,  controls: 10}
+- {code: TH2, type: TH, length_km: 2.8,  climb_m: 45,  controls: 10}
+- {code: TH3, type: TH, length_km: 3.1,  climb_m: 65,  controls: 10}
+- {code: TH4, type: TH, length_km: 2.8,  climb_m: 35,  controls: 11}
+- {code: TH5, type: TH, length_km: 3.3,  climb_m: 55,  controls: 11}
+
+- {code: E1,  type: E,  length_km: 2.7,  climb_m: 30,  controls: 9}
+- {code: E2,  type: E,  length_km: 3.5,  climb_m: 95,  controls: 14}
+- {code: E3,  type: E,  length_km: 4.4,  climb_m: 55,  controls: 11}
+- {code: E4,  type: E,  length_km: 4.8,  climb_m: 95,  controls: 15}
+- {code: E5,  type: E,  length_km: 5.8,  climb_m: 100, controls: 16}
+- {code: E6,  type: E,  length_km: 6.9,  climb_m: 95,  controls: 22}
+- {code: E7,  type: E,  length_km: 8.2,  climb_m: 110, controls: 25}
+
+- {code: H1,  type: H,  length_km: 2.6,  climb_m: 70,  controls: 12}
+- {code: H2,  type: H,  length_km: 3.2,  climb_m: 65,  controls: 14}
+- {code: H3,  type: H,  length_km: 4.1,  climb_m: 80,  controls: 14}
+- {code: H4,  type: H,  length_km: 4.3,  climb_m: 60,  controls: 13}
+- {code: H5,  type: H,  length_km: 5.7,  climb_m: 85,  controls: 14}
+- {code: H6,  type: H,  length_km: 6.9,  climb_m: 115, controls: 19}
+- {code: H7,  type: H,  length_km: 10.1, climb_m: 215, controls: 26}
+
+- {code: ST,  type: ST, length_km: 3.5,  climb_m: 50,  controls: 12}
+- {code: LT,  type: LT, length_km: 5.2,  climb_m: 85,  controls: 15}
+
+- {code: EN1, type: EN, length_km: 2.8,  climb_m: 50,  controls: 11}
+- {code: EN2, type: EN, length_km: 3.6,  climb_m: 50,  controls: 11}
+- {code: EN3, type: EN, length_km: 4.1,  climb_m: 90,  controls: 11}
+- {code: EN4, type: EN, length_km: 4.3,  climb_m: 95,  controls: 13}
+- {code: EN5, type: EN, length_km: 5.8,  climb_m: 100, controls: 13}
+- {code: EN6, type: EN, length_km: 7.8,  climb_m: 85,  controls: 20}
+- {code: EN7, type: EN, length_km: 8.3,  climb_m: 145, controls: 24}
+
+- {code: HN1, type: HN, length_km: 2.6,  climb_m: 40,  controls: 13}
+- {code: HN2, type: HN, length_km: 4.1,  climb_m: 95,  controls: 16}
+- {code: HN3, type: HN, length_km: 4.5,  climb_m: 65,  controls: 16}
+- {code: HN4, type: HN, length_km: 5.2,  climb_m: 125, controls: 20}
+- {code: HN5, type: HN, length_km: 5.7,  climb_m: 110, controls: 16}
+- {code: HN6, type: HN, length_km: 6.6,  climb_m: 130, controls: 23}
+- {code: HN7, type: HN, length_km: 8.3,  climb_m: 185, controls: 23}
+
+- {code: FF,  type: FF, length_km: 4.7,  climb_m: 85,  controls: 20}

@@ -1,0 +1,295 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>24h-OL · Race Control (Mockup B)</title>
+<style>
+  :root {
+    --bg: #0a0a0a;
+    --panel: #131313;
+    --border: #1f1f1f;
+    --text: #ededed;
+    --muted: #6b6b6b;
+    --dim: #404040;
+    --active-bg: #1c1408;
+    --active-edge: #f5a623;
+    --accent: #f5a623;
+    --accent-strong: #fbbf3a;
+    --good: #34d399;
+    --bad: #f87171;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", system-ui, sans-serif;
+    font-size: 14px;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+  .mono { font-family: ui-monospace, "JetBrains Mono", "Geist Mono", "SF Mono", Menlo, Consolas, monospace; }
+
+  .wrap { max-width: 1280px; margin: 0 auto; padding: 28px 36px 80px; }
+
+  /* Top header */
+  header.bar {
+    display: flex; align-items: center; justify-content: space-between;
+    padding-bottom: 18px; margin-bottom: 24px;
+    border-bottom: 1px solid var(--border);
+  }
+  .brand {
+    font-size: 11px; letter-spacing: 0.14em;
+    text-transform: uppercase; color: var(--muted); font-weight: 500;
+  }
+  .brand strong { color: var(--text); font-weight: 500; }
+  .brand .dot { display:inline-block; width:6px; height:6px; border-radius:50%; background: var(--accent); margin-right: 8px; vertical-align: middle; box-shadow: 0 0 8px rgba(245,166,35,0.6); }
+
+  /* Race clock — pit-wall style */
+  .pit-strip {
+    display: grid; grid-template-columns: 1.3fr 1fr 1fr 1.3fr;
+    gap: 18px; margin-bottom: 28px;
+  }
+  .card {
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: 10px; padding: 20px 22px;
+  }
+  .card .label { font-size: 10px; letter-spacing: 0.16em; text-transform: uppercase; color: var(--muted); margin-bottom: 10px; font-weight: 500; }
+  .card .value {
+    font-size: 36px; font-weight: 500; letter-spacing: -0.02em;
+    font-variant-numeric: tabular-nums; line-height: 1.05;
+  }
+  .card .sub { font-size: 12px; color: var(--muted); margin-top: 6px; font-variant-numeric: tabular-nums; }
+  .card.next .value { font-size: 24px; }
+  .delta-pos { color: var(--good); }
+  .delta-neg { color: var(--bad); }
+  .accent { color: var(--accent); }
+
+  /* Table */
+  .schedule {
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: 10px; overflow: hidden;
+  }
+  table { width: 100%; border-collapse: collapse; }
+  thead th {
+    text-align: left; font-weight: 500; font-size: 10px;
+    letter-spacing: 0.14em; text-transform: uppercase; color: var(--muted);
+    padding: 14px 18px;
+    border-bottom: 1px solid var(--border);
+  }
+  tbody td {
+    padding: 14px 18px; font-size: 14px; font-variant-numeric: tabular-nums;
+    border-bottom: 1px solid #161616;
+    vertical-align: middle;
+  }
+  tbody tr:last-child td { border-bottom: 0; }
+  tbody tr.done td { color: var(--dim); }
+  tbody tr.done td.actual { color: var(--good); font-weight: 500; }
+  tbody tr.active td {
+    background: var(--active-bg);
+    color: var(--text); font-weight: 500;
+  }
+  tbody tr.active td:first-child {
+    box-shadow: inset 3px 0 0 0 var(--active-edge);
+  }
+  tbody tr.future td { color: var(--text); }
+
+  td.num { font-variant-numeric: tabular-nums; }
+  td.cycle { color: var(--muted); width: 48px; font-size: 12px; }
+  td.runner { font-weight: 500; width: 110px; }
+  td.course {
+    font-weight: 600; letter-spacing: 0.02em;
+    font-family: ui-monospace, "JetBrains Mono", "Geist Mono", monospace;
+  }
+  td.type { color: var(--muted); width: 56px; font-size: 12px; letter-spacing: 0.06em; }
+  td.dur, td.start, td.finish, td.actual { width: 92px; font-family: ui-monospace, "JetBrains Mono", "Geist Mono", monospace; }
+  td.status { color: var(--muted); width: 90px; text-transform: uppercase; font-size: 10px; letter-spacing: 0.12em; }
+  td.cumulative { color: var(--muted); width: 64px; text-align: right; }
+
+  /* Active-row input — terminal glow */
+  .input-wrap {
+    display: inline-flex; align-items: center; gap: 8px;
+    background: #1d1408;
+    border: 1px solid var(--active-edge);
+    border-radius: 6px; padding: 4px 10px;
+    box-shadow: 0 0 0 3px rgba(245, 166, 35, 0.15), 0 0 18px rgba(245,166,35,0.18);
+  }
+  .input-wrap input {
+    width: 60px; border: none; outline: none; background: transparent;
+    font: inherit; font-variant-numeric: tabular-nums; font-weight: 500;
+    text-align: right; color: var(--text);
+    font-family: ui-monospace, "JetBrains Mono", "Geist Mono", monospace;
+  }
+  .input-wrap .unit { color: var(--muted); font-size: 12px; }
+  .hint {
+    display: inline-block; margin-left: 10px; padding: 2px 8px;
+    border-radius: 4px; background: rgba(245,166,35,0.12);
+    color: var(--accent); border: 1px solid rgba(245,166,35,0.25);
+    font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase;
+  }
+
+  /* Footer hint row */
+  .hint-row {
+    display: flex; gap: 22px; margin-top: 18px;
+    font-size: 11px; color: var(--muted); letter-spacing: 0.06em;
+  }
+  .kbd {
+    display: inline-block; padding: 1px 6px;
+    border: 1px solid var(--border);
+    border-bottom-width: 2px; border-radius: 4px;
+    font-family: ui-monospace, "JetBrains Mono", "Geist Mono", monospace;
+    font-size: 11px; color: var(--text); background: #1a1a1a;
+  }
+
+  /* Live dot */
+  .live {
+    display: inline-flex; align-items: center; gap: 6px;
+    color: var(--accent); font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase;
+  }
+  .live .pulse {
+    width: 7px; height: 7px; border-radius: 50%; background: var(--accent);
+    box-shadow: 0 0 8px rgba(245,166,35,0.7);
+    animation: pulse 1.6s ease-in-out infinite;
+  }
+  @keyframes pulse {
+    0%,100% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.55; transform: scale(0.92); }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header class="bar">
+    <div class="brand"><span class="dot"></span><strong>24h-OL Thüringen 2026</strong> · Heyda</div>
+    <div style="display:flex; gap:18px; align-items:center;">
+      <span class="live"><span class="pulse"></span>Live</span>
+      <span style="font-size:11px; color: var(--muted); letter-spacing:0.08em;">SAT 16 MAY · LAST REPLAN 11:47</span>
+    </div>
+  </header>
+
+  <section class="pit-strip" aria-label="race overview">
+    <div class="card">
+      <div class="label">Race clock</div>
+      <div class="value mono">02:47:21</div>
+      <div class="sub">21h 12m remaining</div>
+    </div>
+    <div class="card">
+      <div class="label">Projected</div>
+      <div class="value mono">33<span style="color:var(--muted); font-weight:400;">/37</span></div>
+      <div class="sub">unchanged since plan</div>
+    </div>
+    <div class="card">
+      <div class="label">Slack to cutoff</div>
+      <div class="value mono delta-pos">+18m</div>
+      <div class="sub">finishes Su 08:42</div>
+    </div>
+    <div class="card next">
+      <div class="label">Next up</div>
+      <div class="value"><span class="accent">Christine</span> · TH2</div>
+      <div class="sub">10:14 start · 25 min predicted</div>
+    </div>
+  </section>
+
+  <section class="schedule" aria-label="schedule">
+    <table>
+      <thead>
+        <tr>
+          <th>#</th><th>Runner</th><th>Course</th><th>Type</th>
+          <th>Start</th><th>Predicted</th><th>Finish</th><th>Actual</th><th>Status</th><th>Done</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr class="done">
+          <td class="cycle">01</td><td class="runner">Hannes</td><td class="course">SF</td><td class="type">SF</td>
+          <td class="num start">09:00</td><td class="num dur">28</td><td class="num finish">09:28</td>
+          <td class="num actual">28.5</td><td class="status">done</td><td class="cumulative">1</td>
+        </tr>
+        <tr class="done">
+          <td class="cycle">02</td><td class="runner">Erich</td><td class="course">TH4</td><td class="type">TH</td>
+          <td class="num start">09:29</td><td class="num dur">23</td><td class="num finish">09:52</td>
+          <td class="num actual">22.0</td><td class="status">done</td><td class="cumulative">2</td>
+        </tr>
+        <tr class="done">
+          <td class="cycle">03</td><td class="runner">Flocke</td><td class="course">TH1</td><td class="type">TH</td>
+          <td class="num start">09:51</td><td class="num dur">20</td><td class="num finish">10:11</td>
+          <td class="num actual">19.5</td><td class="status">done</td><td class="cumulative">3</td>
+        </tr>
+
+        <tr class="active">
+          <td class="cycle">04</td><td class="runner">Christine</td><td class="course">TH2</td><td class="type">TH</td>
+          <td class="num start">10:14</td><td class="num dur">25</td><td class="num finish">10:40</td>
+          <td>
+            <span class="input-wrap"><input value="" placeholder="—" autofocus /><span class="unit">min</span></span>
+            <span class="hint">Enter ↵</span>
+          </td>
+          <td class="status">in progress</td><td class="cumulative">—</td>
+        </tr>
+
+        <tr class="future">
+          <td class="cycle">05</td><td class="runner">Alicia</td><td class="course">TH5</td><td class="type">TH</td>
+          <td class="num start">10:41</td><td class="num dur">39</td><td class="num finish">11:21</td>
+          <td class="num actual" style="color: var(--muted);">—</td>
+          <td class="status">planned</td><td class="cumulative">—</td>
+        </tr>
+        <tr class="future">
+          <td class="cycle">06</td><td class="runner">Sofia</td><td class="course">TH3</td><td class="type">TH</td>
+          <td class="num start">11:22</td><td class="num dur">25</td><td class="num finish">11:47</td>
+          <td class="num actual" style="color: var(--muted);">—</td>
+          <td class="status">planned</td><td class="cumulative">—</td>
+        </tr>
+        <tr class="future">
+          <td class="cycle">07</td><td class="runner">Hannes</td><td class="course">H1</td><td class="type">H</td>
+          <td class="num start">11:48</td><td class="num dur">23</td><td class="num finish">12:11</td>
+          <td class="num actual" style="color: var(--muted);">—</td>
+          <td class="status">planned</td><td class="cumulative">—</td>
+        </tr>
+        <tr class="future">
+          <td class="cycle">08</td><td class="runner">Erich</td><td class="course">H3</td><td class="type">H</td>
+          <td class="num start">12:13</td><td class="num dur">35</td><td class="num finish">12:48</td>
+          <td class="num actual" style="color: var(--muted);">—</td>
+          <td class="status">planned</td><td class="cumulative">—</td>
+        </tr>
+        <tr class="future">
+          <td class="cycle">09</td><td class="runner">Flocke</td><td class="course">E1</td><td class="type">E</td>
+          <td class="num start">12:49</td><td class="num dur">18</td><td class="num finish">13:07</td>
+          <td class="num actual" style="color: var(--muted);">—</td>
+          <td class="status">planned</td><td class="cumulative">—</td>
+        </tr>
+        <tr class="future">
+          <td class="cycle">10</td><td class="runner">Christine</td><td class="course">H2</td><td class="type">H</td>
+          <td class="num start">13:09</td><td class="num dur">33</td><td class="num finish">13:42</td>
+          <td class="num actual" style="color: var(--muted);">—</td>
+          <td class="status">planned</td><td class="cumulative">—</td>
+        </tr>
+        <tr class="future">
+          <td class="cycle">11</td><td class="runner">Alicia</td><td class="course">E4</td><td class="type">E</td>
+          <td class="num start">13:43</td><td class="num dur">53</td><td class="num finish">14:37</td>
+          <td class="num actual" style="color: var(--muted);">—</td>
+          <td class="status">planned</td><td class="cumulative">—</td>
+        </tr>
+        <tr class="future">
+          <td class="cycle">12</td><td class="runner">Sofia</td><td class="course">H4</td><td class="type">H</td>
+          <td class="num start">14:38</td><td class="num dur">32</td><td class="num finish">15:10</td>
+          <td class="num actual" style="color: var(--muted);">—</td>
+          <td class="status">planned</td><td class="cumulative">—</td>
+        </tr>
+        <tr class="future">
+          <td colspan="10" style="text-align:center; padding:12px; color: var(--muted); font-size:11px; letter-spacing: 0.14em; text-transform: uppercase;">
+            21 more legs · LT at 21:20 · FF skipped
+          </td>
+        </tr>
+      </tbody>
+    </table>
+  </section>
+
+  <div class="hint-row">
+    <span><span class="kbd">↵</span> RECORD &amp; REPLAN</span>
+    <span><span class="kbd">⌘</span><span class="kbd">K</span> COMMAND</span>
+    <span><span class="kbd">R</span> REPLAN</span>
+    <span><span class="kbd">?</span> SHORTCUTS</span>
+  </div>
+
+</div>
+</body>
+</html>

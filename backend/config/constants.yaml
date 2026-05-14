@@ -1,0 +1,70 @@
+# All tunable model constants. Edit and re-run `python main.py plan` to see the effect.
+
+# Time model
+K6_PACE_MIN_PER_KM: 5.5     # pace of a K=6 runner on clean flat forest with no nav penalty
+K_STEP_PCT: 0.10            # each K-point below 6 adds 10% to pace
+T_GAP_PCT: 0.12             # each step the course is more technical than the runner: +12%
+NIGHT_PCT: 0.15             # night courses are 15% slower than day-equivalent
+SIGMA_PCT: 0.12             # st-dev of predicted time as fraction of mean
+HANDOVER_OVERHEAD_SEC: 90   # hand-touch + map pickup + start punch
+CLIMB_M_PER_FLAT_KM: 100    # Naismith-style: 100 m climb ~ 1 km flat-equivalent
+
+# Race schedule (Europe/Berlin, +02:00 in May).
+# TWILIGHT_TIME is the *Wechselzeitpunkt* — the moment the organisers announce
+# (by 19:00 race day, at least 1h before) when ST/LT become mandatory. Historical
+# 24h-OL editions (2017, 2022) used 20:00; the design intent is that ST/LT are
+# run *during* civil twilight (~20:00–21:40), not after it. Update the day-of
+# value here once the official announcement is in.
+RACE_START:    "2026-05-16T09:00:00+02:00"
+TWILIGHT_TIME: "2026-05-16T20:00:00+02:00"
+CUTOFF_TIME:   "2026-05-17T09:00:00+02:00"
+
+# Daylight safety window for DAY-type maps (SF/TH/E/H).
+# Day maps have no reflectors and are designed for daylight reading. Rule
+# §5.3.4 also mandates that teams switch to Dämmerungsbahnen (ST/LT) at the
+# announced Wechselzeitpunkt — captured here by TWILIGHT_TIME — so a day map
+# must worst-case finish strictly before TWILIGHT_TIME AND must not start
+# before DAY_RESUME (next morning's daylight).
+# Heyda 2026 (50.78°N), 16–17 May: sunset 21:00, civil dusk 21:40, sunrise 05:18.
+DAY_RESUME: "2026-05-17T05:30:00+02:00"
+# Multiplier on sigma for the day-course safety check: a day course is only
+# scheduled if its (mean + DAY_SAFETY_SIGMA * sigma) finish is still strictly
+# before TWILIGHT_TIME.
+DAY_SAFETY_SIGMA: 1.5
+# Morning-side dispatch buffer (minutes). A day map's planned start must be at
+# least this many minutes past DAY_RESUME, so that if the previous leg comes
+# in faster than its mean prediction the actual handover doesn't drag the
+# day-map dispatch back into pre-sunrise twilight. Mirrors TWILIGHT_EARLY_UNLOCK_MIN
+# on the evening side: ~1.5σ of a typical cycle (≈10 min) absorbs the fast tail.
+DAY_DISPATCH_BUFFER_MIN: 10
+
+# Twilight early-unlock: when the next dispatch falls within this many minutes
+# of TWILIGHT_TIME, the legal pool also surfaces ST/LT, so the optimiser can
+# switch a few minutes early instead of being forced into a day course that
+# would finish in the dark.
+TWILIGHT_EARLY_UNLOCK_MIN: 30
+
+# Optimiser
+SAFETY_SIGMA_THRESHOLD: 2.0   # when remaining slack < threshold * total_sigma, switch to mean+sigma planning
+ROLLOUT_TOP_K: 3              # candidates expanded per decision point
+ROLLOUT_DEPTH: 3              # extra cycles to expand recursively before greedy tail
+STARTING_ORDER_PRUNE_TOP_N: 60  # full-simulate this many top permutations; rest get cheap heuristic
+CALIBRATION_ALPHA: 0.4        # blend weight for new observation in pace multiplier update
+# Clamp the per-runner pace multiplier to a sane band. A real runner is never
+# 3× slower than predicted by their T/K — extreme finish times (typos, drop-outs,
+# wrong card scan) would otherwise drag a single runner's multiplier so high
+# that every future leg overruns the cutoff and the replan halts.
+PACE_MULTIPLIER_MIN: 0.4
+PACE_MULTIPLIER_MAX: 2.5
+
+# Per-course-type default technicality (1..6)
+COURSE_T_BY_TYPE:
+  SF: 2
+  TH: 3
+  E:  2
+  H:  5
+  ST: 2
+  LT: 2
+  EN: 3
+  HN: 5
+  FF: 5

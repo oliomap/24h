@@ -1,0 +1,11 @@
+# 6 runners. T = technicality (orienteering skill), K = Kondition (fitness).
+# Scale is team-relative: 6 = best in this team, 1 = weakest.
+# Tweak these mid-race if a runner is clearly above/below their listed level
+# (online recalibration handles small drift automatically).
+
+- {name: Sofia,     T: 6, K: 4}   # ex-national, best orienteer, 5 yrs out
+- {name: Hannes,    T: 3, K: 6}   # triathlete, best fitness
+- {name: Erich,     T: 5, K: 3}
+- {name: Christine, T: 4, K: 2}
+- {name: Flocke,    T: 2, K: 5}
+- {name: Alicia,    T: 1, K: 1}
