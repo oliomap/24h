@@ -100,7 +100,195 @@ DNF'd runner.
 
 ---
 
-## 3. Calibration: per-course-type multipliers
+## 3. Stamina nonlinearity in the time model
+
+**Status:** not implemented. The current `predict_time` is linear in
+length: pace is a constant per runner, so a K=2 runner is "40% slower"
+than a K=6 runner *regardless of distance*. Reality is nonlinear — a
+recreational K=2 runner asked to do 8 km in technical forest fatigues,
+walks the climbs, and the time blows out well past the linear prediction
+(or doesn't finish).
+
+**Symptom this produces.** On a fresh full plan, total km per runner came
+out *inverted* to fitness:
+
+```
+Hannes    K=6   24.3 km   (fittest, runs the least)
+Sofia     K=4   30.4 km
+Erich     K=3   34.3 km   (gets H7 10.1 km AND HN7 8.3 km)
+Christine K=2   31.3 km   (gets E7 8.2 km AND EN7 8.3 km)
+Flocke    K=5   29.8 km
+Alicia    K=1   29.0 km
+```
+
+Christine (K=2) logs more total km than Hannes (K=6) — structurally
+wrong. The root cause is that the score formula `advantage ÷ time` makes
+short courses look exponentially more attractive for fast runners, so
+they gobble shorts, leaving long courses for whoever's cycle comes up
+later in the rotation.
+
+**The proposed fix — one factor in `predict_time`:**
+
+```
+threshold_km = STAMINA_BASE_KM + STAMINA_K_KM × runner.K     # comfort distance
+overrun_km   = max(0, flat_equivalent_km − threshold_km)
+stamina      = 1 + STAMINA_PCT_PER_KM × overrun_km
+
+mean = pace × flat_equivalent_km × nav × night × stamina
+```
+
+`flat_equivalent_km` already folds climb in Naismith-style, so climb
+costs stamina too — no extra term needed.
+
+**Suggested defaults** (chosen to leave short courses untouched and bite
+hardest where the model is most wrong):
+
+| Constant | Default | Effect |
+|---|---|---|
+| `STAMINA_BASE_KM` | `2` | Everyone fine for 2 km. |
+| `STAMINA_K_KM` | `1.5` | K=6 comfort 11 km (longest course covered); K=1 comfort 3.5 km. |
+| `STAMINA_PCT_PER_KM` | `0.06` | 6 % pace inflation per overrun km. |
+
+**Expected impact on the target case** (EN7, 9.75 km flat-eq):
+
+| Runner | K | Threshold | Overrun | Stamina | Mean now | Mean after | Δ |
+|---|---|---|---|---|---|---|---|
+| Hannes | 6 | 11.0 | 0 | 1.00 | 62 | 62 | +0 |
+| Sofia | 4 | 8.0 | 1.75 | 1.105 | 74 | 82 | +8 |
+| Erich | 3 | 6.5 | 3.25 | 1.195 | 80 | 96 | +16 |
+| **Christine** | **2** | **5.0** | **4.75** | **1.285** | **86** | **111** | **+25** |
+| Alicia | 1 | 3.5 | 6.25 | 1.375 | 115 | 158 | +43 |
+
+The Hannes↔Christine gap widens from 24 min to 49 min — that's the
+lever the optimiser's comparative-advantage score needs to start
+preferring fit runners for long courses.
+
+**Caveat — necessary but possibly not sufficient.** Because the score
+formula's `÷ time` term still dominates, fast runners will *still*
+prefer short courses at their own cycle. The fix improves prediction
+accuracy and *re-weights* the score (Christine's score for EN7 drops),
+but if Christine's cycle is last and the only remaining options are
+long, she'll still inherit one. If after implementing the optimiser
+keeps making the same long-for-weak-runner assignments, the next step
+is either:
+
+- **Reweight the score** (e.g. `advantage² / sqrt(time)` to lessen the
+  short-course bias), or
+- **Hard-block by stamina-overrun ratio** in `_candidate_scores` —
+  refuse to dispatch a course where `overrun / threshold > some_ratio`,
+  forcing the optimiser to find someone else (at the cost of leaving
+  some courses unscheduled at the tail).
+
+**Where to wire it (concrete hooks):**
+
+1. `backend/config/constants.yaml` — add the three constants with the
+   defaults above and a short comment block.
+2. `backend/src/models.py` — three new fields on `Constants` with
+   defaults so older YAML still loads.
+3. `backend/src/state.py` — read them in `load_constants` with `.get()`
+   fallbacks.
+4. `backend/src/time_model.py` `predict_time` — compute and apply the
+   `stamina` factor. Single multiplicative line. Add a new test that
+   covers: zero overrun → factor 1.0; positive overrun → factor matches
+   the formula; the existing `test_climb_adds_time` continues to pass
+   for K=4 + flat-eq 7 km (threshold 8 — stays inside comfort).
+5. Existing `test_real_courses_load_and_have_sane_times` upper bound for
+   Hannes-on-H7 (currently `< 110`) needs a hand-check: with K=6
+   threshold 11, H7 flat-eq 12.25, overrun 1.25, stamina 1.075, time
+   lands at ~90 min — comfortably inside.
+
+**Acceptance check after implementation:**
+
+- All existing tests pass.
+- Per-runner total km becomes monotone or near-monotone in K (fittest
+  ≥ least fit).
+- A fresh `python main.py plan` shows Hannes (K=6) carrying more total
+  km than the K≤3 runners.
+- Total cycle count doesn't regress materially (within 1 of the prior
+  37-or-near-37 baseline).
+
+If the optimiser still gives Christine EN7 after this change, the
+follow-up reweighting / hard-block options above are the next surgery.
+
+---
+
+## 4. Allowed-maps matrix — operator-driven course constraints
+
+**Status:** not implemented. The current model assumes any runner can
+complete any course, just at a slower predicted time. In reality, a
+coach knows things the time model never will: "Christine's knee can't
+take anything over 6 km this race", "Alicia disorients on H-type maps
+at night", "Hannes refuses HN courses with >100 m climb". These are
+physical / mental / preference constraints orthogonal to T, K, and
+stamina, and they can't be derived from numbers — they have to be
+declared.
+
+**The idea.** Per-runner allow-list (or forbid-list) of course codes /
+course types, declared in `team.yaml`. The optimiser filters the legal
+pool through this matrix in `_candidate_scores`, so a forbidden course
+is invisible to that runner regardless of score.
+
+**Example data shape (forbid-list — easier to maintain than allow-list):**
+
+```yaml
+- name: Christine
+  T: 4
+  K: 2
+  forbid_courses: [E7, EN7, HN6, HN7]    # too long for her current shape
+- name: Alicia
+  T: 1
+  K: 1
+  forbid_types:   [H, HN]                 # T-mismatch for hard courses
+```
+
+Either key is optional; an absent key means "no extra restrictions".
+
+**Effects:**
+
+- A forbidden course is dropped from the candidate list for that
+  runner — the optimiser must find someone else for it.
+- Stacks cleanly on top of the phase machine and stamina (if/when
+  stamina is added) — three independent filters, each surgically scoped.
+- Can produce infeasible cycles if constraints are too tight (no
+  runner can take the only remaining course); the simulator will
+  naturally stop there, leaving an unplotted course rather than
+  silently violating the operator's intent.
+
+**Caveats:**
+
+- Subjective and static. Doesn't adapt mid-race — pair with §7
+  (operator UX) if you also want a live-toggle UI.
+- Can hide useful options. A forbid list set pre-race may turn out
+  wrong (the runner felt fine, knee held up). Provide an easy way for
+  the operator to clear an entry without editing YAML on race morning.
+
+**Where to wire it (concrete hooks):**
+
+1. `backend/config/team.yaml` — extend the runner schema with optional
+   `forbid_courses: [...]` and `forbid_types: [...]`.
+2. `backend/src/models.py` `Runner` — add two optional fields,
+   default empty `frozenset()`. Keep `Runner` frozen and hashable.
+3. `backend/src/state.py` `load_team` — read the lists, build the
+   frozensets, attach to the `Runner` instance.
+4. `backend/src/optimizer.py` `_candidate_scores` — first thing inside
+   the `for course in legal:` loop, `continue` if
+   `course.code in runner.forbid_courses or course.type in runner.forbid_types`.
+5. Tests:
+   - `Runner(... forbid_courses={"EN7"})` → that runner's candidate list
+     never includes EN7 even when EN7 is in `legal`.
+   - Pre-race `plan()` with Christine `forbid_courses=[EN7]` produces
+     a schedule with no `Christine→EN7` assignment.
+
+**Synergy with §3 (stamina).** Stamina is a *soft, automatic, physical*
+correction — it lets the optimiser self-rebalance based on what the
+model knows. The forbid-list is a *hard, manual, knowledge-injection*
+override — it captures the part of "fit for course" that the model
+will never see. The two complement each other; implementing one doesn't
+preclude the other.
+
+---
+
+## 5. Calibration: per-course-type multipliers
 
 **Status:** one pace multiplier per runner. So a runner who is bad at
 H (technical hard) but fine at E (easy) drags her predictions for both
@@ -114,7 +302,7 @@ component cares.
 
 ---
 
-## 4. Cumulative-sigma planning on the morning DAY_RESUME boundary
+## 6. Cumulative-sigma planning on the morning DAY_RESUME boundary
 
 **Status:** the morning-side `DAY_DISPATCH_BUFFER_MIN` is a *constant*
 (10 min), set to roughly absorb 1.5σ of a single ~30-min night cycle.
@@ -132,7 +320,7 @@ cycle out from DAY_RESUME, the buffer over-protects.
 
 ---
 
-## 5. Multi-segment course model (flats vs climbs vs technical bits)
+## 7. Multi-segment course model (flats vs climbs vs technical bits)
 
 **Status:** every course is one homogeneous (`length_km`, `climb_m`,
 `controls`) tuple, converted to flat-equivalent km via a single Naismith
@@ -150,7 +338,7 @@ strictly local.
 
 ---
 
-## 6. Schedule-aware operator UX
+## 8. Schedule-aware operator UX
 
 A handful of UX gaps that would matter on race day but are not in scope
 for the v1:
@@ -169,7 +357,7 @@ for the v1:
 
 ---
 
-## 7. Search quality knobs that are turned conservatively
+## 9. Search quality knobs that are turned conservatively
 
 - `STARTING_ORDER_PRUNE_TOP_N = 60` (of 720) — we full-rollout-simulate
   the top 60 cheap-evaluated starting orders. Race-day machine is fine,
@@ -183,7 +371,7 @@ for the v1:
 
 ---
 
-## 8. Twilight early-unlock vs. strict §5.3.4 reading
+## 10. Twilight early-unlock vs. strict §5.3.4 reading
 
 **Current behavior:** `TWILIGHT_EARLY_UNLOCK_MIN = 30` lets the planner
 pick ST/LT up to 30 min before `TWILIGHT_TIME` *when every remaining day
@@ -203,7 +391,7 @@ should be aware it exists. Two ways to harden:
 
 ---
 
-## 9. Operational extras
+## 11. Operational extras
 
 Not rule-related but real on race day:
 
@@ -225,12 +413,21 @@ Not rule-related but real on race day:
 
 ## Where to start (if you're picking this up)
 
-If you implement only one thing, do **§1 (MP) + §2 (DNF) together** —
-they share the cutoff-shift machinery and the operator-input wiring, and
-together they take the planner from "happy path only" to robust against
-the two failures that actually happen at 24h relays. Touch
-`backend/src/models.py`, `backend/src/state.py`, the API in
-`backend/api.py`, and `frontend/components/ScheduleTable.tsx`. The
-optimizer itself (`backend/src/optimizer.py`) needs one change: read
-`effective_cutoff` instead of `constants.CUTOFF_TIME` in the two filter
-sites in `_candidate_scores`.
+Two natural starting points, depending on what you're optimising for:
+
+- **Rule robustness (highest race-day impact):** do **§1 (MP) + §2 (DNF)
+  together** — they share the cutoff-shift machinery and the operator-input
+  wiring, and together they take the planner from "happy path only" to
+  robust against the two failures that actually happen at 24h relays.
+  Touch `backend/src/models.py`, `backend/src/state.py`, the API in
+  `backend/api.py`, and `frontend/components/ScheduleTable.tsx`. The
+  optimizer itself (`backend/src/optimizer.py`) needs one change: read
+  `effective_cutoff` instead of `constants.CUTOFF_TIME` in the two filter
+  sites in `_candidate_scores`.
+- **Assignment quality (highest "is this a sensible plan?" impact):** do
+  **§3 (stamina nonlinearity)**. Smaller surgery — a single multiplicative
+  factor in `predict_time` plus three constants — but it directly fixes
+  the structurally-wrong load distribution where the weakest stamina
+  runner currently logs more total km than the fittest. The section above
+  spells out the formula, the suggested defaults, and a hand-computed
+  expected-impact table.
