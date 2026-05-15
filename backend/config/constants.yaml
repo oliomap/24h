@@ -46,8 +46,8 @@ TWILIGHT_EARLY_UNLOCK_MIN: 30
 
 # Optimiser
 SAFETY_SIGMA_THRESHOLD: 2.0   # when remaining slack < threshold * total_sigma, switch to mean+sigma planning
-ROLLOUT_TOP_K: 3              # candidates expanded per decision point
-ROLLOUT_DEPTH: 3              # extra cycles to expand recursively before greedy tail
+ROLLOUT_TOP_K: 7              # candidates expanded per decision point
+ROLLOUT_DEPTH: 10             # extra cycles to expand recursively before greedy tail
 STARTING_ORDER_PRUNE_TOP_N: 60  # full-simulate this many top permutations; rest get cheap heuristic
 CALIBRATION_ALPHA: 0.4        # blend weight for new observation in pace multiplier update
 # Clamp the per-runner pace multiplier to a sane band. A real runner is never
