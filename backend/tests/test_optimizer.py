@@ -117,7 +117,7 @@ def test_optimiser_assigns_hard_courses_by_comparative_advantage():
         Runner(name="Hannes", T=1, K=1),
         Runner(name="Erich", T=1, K=1),
         Runner(name="Christine", T=1, K=1),
-        Runner(name="Flocke", T=1, K=1),
+        Runner(name="Konsti", T=1, K=1),
         Runner(name="Alicia", T=6, K=6),
     ]
     base_b = empty_state(courses, team_b)

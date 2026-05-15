@@ -119,7 +119,7 @@ Hannes    K=6   24.3 km   (fittest, runs the least)
 Sofia     K=4   30.4 km
 Erich     K=3   34.3 km   (gets H7 10.1 km AND HN7 8.3 km)
 Christine K=2   31.3 km   (gets E7 8.2 km AND EN7 8.3 km)
-Flocke    K=5   29.8 km
+Konsti    K=5   29.8 km
 Alicia    K=1   29.0 km
 ```
 
@@ -244,7 +244,7 @@ or worse, get lost in the woods at 3 AM".
   T: 4
   K: 2
   forbid_courses: [E7, H7, EN7, HN6, HN7]   # K=2 → longest in each pool out of scope
-- name: Flocke
+- name: Konsti
   T: 2
   K: 5
   forbid_types:   [HN]                       # T-gap of 3 in pitch dark is unsafe

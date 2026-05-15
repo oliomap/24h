@@ -20,7 +20,7 @@
   T: 4
   K: 2
   forbid_courses: [E7, H7, EN7, HN6, HN7]
-- name: Flocke                                                           # T=2 vs HN T=5 — 3-step nav gap in pitch dark is unsafe
+- name: Konsti                                                           # T=2 vs HN T=5 — 3-step nav gap in pitch dark is unsafe
   T: 2
   K: 5
   forbid_types: [HN]

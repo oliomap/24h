@@ -17,11 +17,11 @@ def test_higher_t_reduces_time_on_hard_course():
     c = load_constants()
     hard = Course(code="HX", type="H", length_km=5.0, climb_m=0, controls=10)
     sofia = Runner(name="Sofia", T=6, K=4)
-    flocke = Runner(name="Flocke", T=2, K=5)
-    # Flocke is fitter (K=5 vs K=4) but Sofia is more technical (T=6 vs T=2)
+    konsti = Runner(name="Konsti", T=2, K=5)
+    # Konsti is fitter (K=5 vs K=4) but Sofia is more technical (T=6 vs T=2)
     # on a T=5 hard course. Sofia should be faster.
     s_mean, _ = predict_time(sofia, hard, c)
-    f_mean, _ = predict_time(flocke, hard, c)
+    f_mean, _ = predict_time(konsti, hard, c)
     assert s_mean < f_mean
 
 
