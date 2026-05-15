@@ -131,6 +131,12 @@ def _candidate_scores(
     safe: list[tuple[float, Course, float, float]] = []
     unsafe_day: list[tuple[float, Course, float, float]] = []
     for course in legal:
+        # Per-runner hard blocks the time model can't express (coach knowledge:
+        # injury, navigation fear, distance limit). Stacks on top of the phase
+        # machine and the cutoff filter — three independent filters, each
+        # surgically scoped. See extensions.md §4.
+        if course.code in runner.forbid_courses or course.type in runner.forbid_types:
+            continue
         mean, sigma = predict_time(runner, course, constants, mult)
         if now + timedelta(minutes=mean) > constants.CUTOFF_TIME:
             continue

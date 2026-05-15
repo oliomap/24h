@@ -2,10 +2,30 @@
 # Scale is team-relative: 6 = best in this team, 1 = weakest.
 # Tweak these mid-race if a runner is clearly above/below their listed level
 # (online recalibration handles small drift automatically).
+#
+# Optional per-runner hard blocks (operator/coach knowledge the time model
+# can't represent — injury, distance limit, night-nav fear). The optimiser
+# drops these from the runner's candidate list regardless of score:
+#   forbid_courses: [E7, EN7, ...]   exact course codes
+#   forbid_types:   [H, HN, ...]     whole course types
+# Omit a key (or leave it empty) for "no extra restrictions".
+# Don't forbid mandatory single-course types/codes (SF, ST, LT, FF) — the
+# cyclic order is locked, so blocking them on the runner whose cycle they
+# fall in halts the simulator there.
 
-- {name: Sofia,     T: 6, K: 4}   # ex-national, best orienteer, 5 yrs out
-- {name: Hannes,    T: 3, K: 6}   # triathlete, best fitness
-- {name: Erich,     T: 5, K: 3}
-- {name: Christine, T: 4, K: 2}
-- {name: Flocke,    T: 2, K: 5}
-- {name: Alicia,    T: 1, K: 1}
+- {name: Sofia,     T: 6, K: 4}                                          # ex-national, best orienteer, 5 yrs out
+- {name: Hannes,    T: 3, K: 6}                                          # triathlete, best fitness — handles long & night
+- {name: Erich,     T: 5, K: 3}                                          # strong nav, mid stamina
+- name: Christine                                                        # K=2: longest course in each pool is out of scope
+  T: 4
+  K: 2
+  forbid_courses: [E7, H7, EN7, HN6, HN7]
+- name: Flocke                                                           # T=2 vs HN T=5 — 3-step nav gap in pitch dark is unsafe
+  T: 2
+  K: 5
+  forbid_types: [HN]
+- name: Alicia                                                           # weakest in both; technical + longest distances both out of scope
+  T: 1
+  K: 1
+  forbid_types: [H, HN]
+  forbid_courses: [E7, EN7]

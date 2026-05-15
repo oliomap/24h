@@ -4,8 +4,10 @@ What's *not* in the current implementation, what a next maintainer should
 understand before extending, and roughly how to wire each one in. Items
 are ordered by how race-impacting they are.
 
-Nothing in this list is built. The point is to capture the limitation and
+Most of this list is unbuilt. The point is to capture the limitation and
 the design hook so the next dev doesn't rediscover it under time pressure.
+Items that *have* shipped (currently: §4) are kept for historical context
+and to flag their tuning knobs.
 
 ---
 
@@ -214,77 +216,114 @@ follow-up reweighting / hard-block options above are the next surgery.
 
 ## 4. Allowed-maps matrix — operator-driven course constraints
 
-**Status:** not implemented. The current model assumes any runner can
-complete any course, just at a slower predicted time. In reality, a
-coach knows things the time model never will: "Christine's knee can't
-take anything over 6 km this race", "Alicia disorients on H-type maps
-at night", "Hannes refuses HN courses with >100 m climb". These are
-physical / mental / preference constraints orthogonal to T, K, and
-stamina, and they can't be derived from numbers — they have to be
-declared.
+**Status:** **implemented.** Per-runner course/type forbid-lists in
+`team.yaml`, filtered in `_candidate_scores`. Three independent filters
+now stack: phase machine → forbid matrix → cutoff fit.
 
-**The idea.** Per-runner allow-list (or forbid-list) of course codes /
-course types, declared in `team.yaml`. The optimiser filters the legal
-pool through this matrix in `_candidate_scores`, so a forbidden course
-is invisible to that runner regardless of score.
+### Why it exists
 
-**Example data shape (forbid-list — easier to maintain than allow-list):**
+The time model assumes any runner can complete any course, just at a
+slower predicted time. In reality, a coach knows things the time model
+never will: "Christine's knee can't take anything over 6 km this race",
+"Alicia disorients on H-type maps at night", "Hannes refuses HN courses
+with >100 m climb". These are physical / mental / preference constraints
+orthogonal to T, K, and (future) stamina, and they can't be derived from
+numbers — they have to be declared.
+
+Without the matrix, the optimiser will *eventually* assign a low-T/low-K
+runner to a long technical night course because the cyclic order forces
+their cycle to come up at a moment where that's the only legal high-score
+option. The numbers say "yes, 110 min"; reality says "she may not finish,
+or worse, get lost in the woods at 3 AM".
+
+### Data shape
 
 ```yaml
 - name: Christine
   T: 4
   K: 2
-  forbid_courses: [E7, EN7, HN6, HN7]    # too long for her current shape
+  forbid_courses: [E7, H7, EN7, HN6, HN7]   # K=2 → longest in each pool out of scope
+- name: Flocke
+  T: 2
+  K: 5
+  forbid_types:   [HN]                       # T-gap of 3 in pitch dark is unsafe
 - name: Alicia
   T: 1
   K: 1
-  forbid_types:   [H, HN]                 # T-mismatch for hard courses
+  forbid_types:   [H, HN]                    # T-mismatch on technical maps
+  forbid_courses: [E7, EN7]                  # + longest distances
 ```
 
-Either key is optional; an absent key means "no extra restrictions".
+Either key is optional; an absent or empty key means "no extra
+restrictions". The other three runners (Sofia, Hannes, Erich) carry no
+forbids.
 
-**Effects:**
+### Behavior
 
 - A forbidden course is dropped from the candidate list for that
   runner — the optimiser must find someone else for it.
-- Stacks cleanly on top of the phase machine and stamina (if/when
-  stamina is added) — three independent filters, each surgically scoped.
+- Stacks cleanly on top of the phase machine and (future) stamina —
+  each filter surgically scoped, no entanglement.
 - Can produce infeasible cycles if constraints are too tight (no
-  runner can take the only remaining course); the simulator will
-  naturally stop there, leaving an unplotted course rather than
-  silently violating the operator's intent.
+  runner can take the only remaining course at the locked-order cycle);
+  the simulator stops there, leaving an unplotted course rather than
+  silently violating the operator's intent. With the current defaults
+  this hasn't been observed — fresh plans produce 34 cycles with +11 min
+  slack to cutoff.
+- **Don't forbid mandatory single-course types/codes (SF, ST, LT, FF)**
+  on the runner whose locked cycle they fall into — the simulator will
+  halt at that cycle. The team.yaml comment block flags this.
 
-**Caveats:**
+### Where it's wired
 
-- Subjective and static. Doesn't adapt mid-race — pair with §7
-  (operator UX) if you also want a live-toggle UI.
-- Can hide useful options. A forbid list set pre-race may turn out
-  wrong (the runner felt fine, knee held up). Provide an easy way for
-  the operator to clear an entry without editing YAML on race morning.
+1. [`backend/config/team.yaml`](backend/config/team.yaml) — optional
+   `forbid_courses: [...]` and `forbid_types: [...]` per runner.
+2. [`backend/src/models.py`](backend/src/models.py) `Runner` — two
+   frozenset fields, default empty. `Runner` stays frozen and hashable.
+3. [`backend/src/state.py`](backend/src/state.py) `load_team` — reads
+   the optional lists, builds frozensets, attaches to the `Runner`.
+4. [`backend/src/optimizer.py`](backend/src/optimizer.py)
+   `_candidate_scores` — first line in the `for course in legal:` loop,
+   `continue` if `course.code in runner.forbid_courses or course.type in
+   runner.forbid_types`.
+5. Tests in [`backend/tests/test_optimizer.py`](backend/tests/test_optimizer.py):
+   `test_forbid_courses_excluded_from_runner_candidates`,
+   `test_forbid_types_excluded_from_runner_candidates`,
+   `test_plan_honors_forbid_matrix_end_to_end`.
 
-**Where to wire it (concrete hooks):**
+### Caveats / what's still open
 
-1. `backend/config/team.yaml` — extend the runner schema with optional
-   `forbid_courses: [...]` and `forbid_types: [...]`.
-2. `backend/src/models.py` `Runner` — add two optional fields,
-   default empty `frozenset()`. Keep `Runner` frozen and hashable.
-3. `backend/src/state.py` `load_team` — read the lists, build the
-   frozensets, attach to the `Runner` instance.
-4. `backend/src/optimizer.py` `_candidate_scores` — first thing inside
-   the `for course in legal:` loop, `continue` if
-   `course.code in runner.forbid_courses or course.type in runner.forbid_types`.
-5. Tests:
-   - `Runner(... forbid_courses={"EN7"})` → that runner's candidate list
-     never includes EN7 even when EN7 is in `legal`.
-   - Pre-race `plan()` with Christine `forbid_courses=[EN7]` produces
-     a schedule with no `Christine→EN7` assignment.
+- **Static, edited as YAML.** A forbid set pre-race may turn out wrong
+  on race day (the runner felt fine, knee held up). There's no UI to
+  clear an entry mid-race yet — the operator has to edit
+  `backend/config/team.yaml` on the server and `systemctl restart
+  24h-backend`. A live-toggle UI is captured under §8 (Schedule-aware
+  operator UX).
+- **No allow-list form.** The doc earlier proposed allow-lists too;
+  only forbid-lists are implemented (easier to maintain — empty means
+  "anything legal"). If a future use case needs an allow-list, the
+  hook is one extra `if course.code not in runner.allow_courses`
+  line in the same place.
+- **No infeasibility warning.** If a tight forbid set means cycle N has
+  zero candidates, `simulate` stops cleanly but doesn't surface *why*.
+  An operator looking at "Bahnen 23/37" with the cutoff still 4h away
+  has to guess that a forbid is too aggressive. A debug log line in
+  `_candidate_scores` ("runner X had 0 candidates at cycle N: all
+  legal courses forbidden") would help — not wired yet.
 
-**Synergy with §3 (stamina).** Stamina is a *soft, automatic, physical*
-correction — it lets the optimiser self-rebalance based on what the
-model knows. The forbid-list is a *hard, manual, knowledge-injection*
-override — it captures the part of "fit for course" that the model
-will never see. The two complement each other; implementing one doesn't
-preclude the other.
+### Synergy with §3 (stamina)
+
+Stamina is a *soft, automatic, physical* correction — it lets the
+optimiser self-rebalance based on what the model knows. The forbid-list
+is a *hard, manual, knowledge-injection* override — it captures the part
+of "fit for course" that the model will never see. They complement each
+other and the matrix already partially mitigates the §3 "weakest runner
+logs more total km than the fittest" inversion as a side effect: with
+the current forbids, Christine drops from 31.3 km → 18.3 km and Alicia
+from 29.0 km → 21.0 km, while Hannes (no forbids) lands at 29.6 km.
+Stamina nonlinearity is still worth implementing — the matrix only
+removes *categorical* mismatches; in-scope load distribution is
+stamina's domain.
 
 ---
 
@@ -413,7 +452,8 @@ Not rule-related but real on race day:
 
 ## Where to start (if you're picking this up)
 
-Two natural starting points, depending on what you're optimising for:
+§4 (forbid matrix) is the only item from this list that's shipped. Two
+natural next starting points, depending on what you're optimising for:
 
 - **Rule robustness (highest race-day impact):** do **§1 (MP) + §2 (DNF)
   together** — they share the cutoff-shift machinery and the operator-input
@@ -428,6 +468,9 @@ Two natural starting points, depending on what you're optimising for:
   **§3 (stamina nonlinearity)**. Smaller surgery — a single multiplicative
   factor in `predict_time` plus three constants — but it directly fixes
   the structurally-wrong load distribution where the weakest stamina
-  runner currently logs more total km than the fittest. The section above
-  spells out the formula, the suggested defaults, and a hand-computed
-  expected-impact table.
+  runner currently logs more total km than the fittest. §4 has already
+  closed the *categorical* mismatch case (the matrix moves long maps off
+  Christine and Alicia entirely); §3 is now about smoothly re-weighting
+  the *in-scope* load distribution. The section above spells out the
+  formula, the suggested defaults, and a hand-computed expected-impact
+  table.

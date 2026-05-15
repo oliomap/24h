@@ -82,7 +82,18 @@ def load_team(path: Optional[Path] = None) -> list[Runner]:
     path = path or (CONFIG_DIR / "team.yaml")
     with open(path) as f:
         rows = yaml.safe_load(f)
-    return [Runner(name=r["name"], T=float(r["T"]), K=float(r["K"])) for r in rows]
+    runners: list[Runner] = []
+    for r in rows:
+        runners.append(
+            Runner(
+                name=r["name"],
+                T=float(r["T"]),
+                K=float(r["K"]),
+                forbid_courses=frozenset(r.get("forbid_courses") or ()),
+                forbid_types=frozenset(r.get("forbid_types") or ()),
+            )
+        )
+    return runners
 
 
 def empty_state(courses: dict[str, Course], team: list[Runner]) -> RaceState:

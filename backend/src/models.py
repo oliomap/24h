@@ -10,6 +10,14 @@ class Runner:
     name: str
     T: float
     K: float
+    # Hard per-runner course constraints the time model can't represent.
+    # T/K are coarse numeric proxies — a runner with a sore knee, a fear of
+    # technical night maps, or a stated distance limit needs a categorical
+    # block, not a softened prediction. The optimiser drops any course whose
+    # code is in ``forbid_courses`` or whose type is in ``forbid_types`` from
+    # this runner's candidate list, regardless of score.
+    forbid_courses: frozenset[str] = field(default_factory=frozenset)
+    forbid_types: frozenset[str] = field(default_factory=frozenset)
 
 
 @dataclass(frozen=True)

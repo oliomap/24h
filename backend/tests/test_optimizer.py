@@ -435,6 +435,118 @@ def test_rollout_tiebreaker_prefers_earlier_finish():
     )
 
 
+def test_forbid_courses_excluded_from_runner_candidates():
+    """A course in a runner's ``forbid_courses`` set must never surface as a
+    candidate for that runner — even when it's in the legal pool and would
+    otherwise score well. Stacks on top of the phase machine and cutoff
+    filter as a third independent gate (extensions.md §4)."""
+    from src.optimizer import _candidate_scores, _legal
+
+    c = load_constants()
+    courses = load_courses()
+    team = load_team()
+    base = empty_state(courses, team)
+
+    # Synthesise a runner with EN7 explicitly forbidden, plug them into the
+    # cyclic order, and rewind to a "night phase" moment where EN7 is in the
+    # legal pool. Anyone *without* the forbid sees EN7; the forbidden runner
+    # never does.
+    christine = next(r for r in team if r.name == "Christine")
+    assert "EN7" in christine.forbid_courses, "team.yaml regression: Christine should be forbidden EN7"
+
+    # Move state into a night-legal phase by marking all TH and ST/LT done.
+    state = empty_state(courses, team)
+    state.runners_in_order = team
+    state.completed_codes = {
+        "SF", "TH1", "TH2", "TH3", "TH4", "TH5", "ST", "LT",
+        "E1", "E2", "E3", "H1", "H2",
+    }
+
+    now = c.TWILIGHT_TIME + timedelta(minutes=30)  # well into the night window
+    legal = _legal(state, now, c)
+    assert any(course.code == "EN7" for course in legal), (
+        "legal pool should include EN7 in the night phase after ST/LT done"
+    )
+
+    # Christine: EN7 must be absent.
+    cands = _candidate_scores(state, christine, legal, now, c)
+    assert all(course.code != "EN7" for _, course, _, _ in cands), (
+        "Christine has EN7 in forbid_courses but it still appears as a candidate"
+    )
+
+    # Sanity: a non-forbidden teammate (Hannes) DOES see EN7 in the legal
+    # candidate list when slack permits. This proves the filter is per-runner,
+    # not a global drop.
+    hannes = next(r for r in team if r.name == "Hannes")
+    assert "EN7" not in hannes.forbid_courses
+    cands_h = _candidate_scores(state, hannes, legal, now, c)
+    if any(course.code == "EN7" for _, course, _, _ in cands_h):
+        pass  # expected case: EN7 visible to Hannes
+    else:
+        # Acceptable fallback: EN7 might be cutoff-filtered for Hannes too at
+        # this very late `now`. The point is that *if* it's visible to anyone
+        # it's not Christine. Re-verify with a far earlier `now`.
+        early = c.TWILIGHT_TIME + timedelta(minutes=5)
+        legal_e = _legal(state, early, c)
+        cands_h2 = _candidate_scores(state, hannes, legal_e, early, c)
+        assert any(course.code == "EN7" for _, course, _, _ in cands_h2), (
+            "EN7 should be a candidate for Hannes at some legal night moment"
+        )
+
+
+def test_forbid_types_excluded_from_runner_candidates():
+    """``forbid_types`` blocks every course of a type for that runner.
+    Alicia in team.yaml is forbidden from H and HN; no H/HN course may ever
+    surface as a candidate for her, even when one is in the legal pool."""
+    from src.optimizer import _candidate_scores, _legal
+
+    c = load_constants()
+    courses = load_courses()
+    team = load_team()
+
+    alicia = next(r for r in team if r.name == "Alicia")
+    assert {"H", "HN"} <= alicia.forbid_types
+
+    state = empty_state(courses, team)
+    state.runners_in_order = team
+    # Day phase first: H must be legal but invisible to Alicia.
+    state.completed_codes = {"SF", "TH1", "TH2", "TH3", "TH4", "TH5"}
+    day_now = c.RACE_START + timedelta(hours=4)
+    legal_day = _legal(state, day_now, c)
+    assert any(course.type == "H" for course in legal_day)
+    cands_day = _candidate_scores(state, alicia, legal_day, day_now, c)
+    assert all(course.type != "H" for _, course, _, _ in cands_day), (
+        "Alicia has 'H' in forbid_types but H courses still appear"
+    )
+
+    # Night phase: HN must be legal but invisible to Alicia.
+    state.completed_codes |= {"ST", "LT"}
+    night_now = c.TWILIGHT_TIME + timedelta(minutes=30)
+    legal_night = _legal(state, night_now, c)
+    assert any(course.type == "HN" for course in legal_night)
+    cands_night = _candidate_scores(state, alicia, legal_night, night_now, c)
+    assert all(course.type != "HN" for _, course, _, _ in cands_night), (
+        "Alicia has 'HN' in forbid_types but HN courses still appear"
+    )
+
+
+def test_plan_honors_forbid_matrix_end_to_end():
+    """Full pre-race plan: no assignment in the final schedule may pair a
+    runner with one of their forbidden codes or types. This catches the
+    case where the filter works in isolation but a code path elsewhere
+    (rollout, replan) bypasses it."""
+    state, _c, _, team = _planned_state()
+    by_name = {r.name: r for r in team}
+    violations = []
+    for a in state.assignments:
+        r = by_name[a.runner.name]
+        if a.course.code in r.forbid_courses or a.course.type in r.forbid_types:
+            violations.append(
+                f"cycle {a.cycle} {r.name} → {a.course.code} ({a.course.type})"
+            )
+    assert not violations, "forbid-matrix violations in plan: " + "; ".join(violations)
+
+
 def test_replan_after_user_scenario_extends_schedule():
     """The user's exact reported scenario: cycle 7 takes 1000 min and cycles
     8..12 each take ~1 min. With the rollout tiebreaker fix in place, the
