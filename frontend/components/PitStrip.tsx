@@ -40,17 +40,17 @@ function Card({
   valueClass?: string;
 }) {
   return (
-    <div className="bg-[var(--color-panel)] border border-[var(--color-border)] rounded-[10px] px-6 py-5">
-      <div className="text-[10px] tracking-[0.16em] uppercase text-[var(--color-muted)] font-medium mb-2.5">
+    <div className="bg-[var(--color-panel)] border border-[var(--color-border)] rounded-[10px] px-3.5 py-3.5 lg:px-6 lg:py-5">
+      <div className="text-[9px] lg:text-[10px] tracking-[0.14em] lg:tracking-[0.16em] uppercase text-[var(--color-muted)] font-medium mb-1.5 lg:mb-2.5">
         {label}
       </div>
       <div
-        className={`text-[36px] font-medium tracking-[-0.02em] leading-[1.05] tabular ${valueClass ?? ""}`}
+        className={`text-[26px] lg:text-[36px] font-medium tracking-[-0.02em] leading-[1.05] tabular ${valueClass ?? ""}`}
       >
         {value}
       </div>
       {sub && (
-        <div className="text-[12px] text-[var(--color-muted)] mt-1.5 tabular">
+        <div className="text-[11px] lg:text-[12px] text-[var(--color-muted)] mt-1 lg:mt-1.5 tabular">
           {sub}
         </div>
       )}
@@ -87,7 +87,7 @@ export function PitStrip({
       : "text-[var(--color-bad)]";
 
   return (
-    <section className="grid grid-cols-[1.3fr_1fr_1fr_1.3fr] gap-[18px] mb-7">
+    <section className="grid grid-cols-2 lg:grid-cols-[1.3fr_1fr_1fr_1.3fr] gap-2.5 lg:gap-[18px] mb-5 lg:mb-7">
       <Card
         label="Rennzeit"
         value={<span className="font-mono">{clock}</span>}
@@ -123,21 +123,32 @@ export function PitStrip({
         label="Als nächstes"
         value={
           nextUp ? (
-            <span className="text-[24px]">
+            <span className="text-[17px] lg:text-[24px] leading-tight">
               <span className="text-[var(--color-accent)]">{nextUp.runner_name}</span>{" "}
               <span className="text-[var(--color-text)]">·</span>{" "}
               <span className="font-mono">{nextUp.course_code}</span>
             </span>
           ) : (
-            <span className="text-[24px] text-[var(--color-muted)]">—</span>
+            <span className="text-[17px] lg:text-[24px] text-[var(--color-muted)]">—</span>
           )
         }
         sub={
-          nextUp
-            ? `${formatRaceTime(nextUp.planned_start, raceStart)} Start · ${Math.round(
-                nextUp.planned_duration_min
-              )} Min Prognose · ${typeLabel(nextUp.course_type)}`
-            : "Plan erstellen"
+          nextUp ? (
+            <>
+              <span className="lg:hidden">
+                {formatRaceTime(nextUp.planned_start, raceStart)} · {Math.round(
+                  nextUp.planned_duration_min
+                )} Min · {typeLabel(nextUp.course_type)}
+              </span>
+              <span className="hidden lg:inline">
+                {formatRaceTime(nextUp.planned_start, raceStart)} Start · {Math.round(
+                  nextUp.planned_duration_min
+                )} Min Prognose · {typeLabel(nextUp.course_type)}
+              </span>
+            </>
+          ) : (
+            "Plan erstellen"
+          )
         }
       />
     </section>

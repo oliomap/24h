@@ -134,7 +134,10 @@ export function RaceScreen() {
   if (!schedule) return null;
 
   return (
-    <div className="max-w-[1280px] w-full mx-auto px-9 pt-7 pb-20">
+    <div
+      className="max-w-[1280px] w-full mx-auto px-4 pt-4 pb-16 sm:px-9 sm:pt-7 sm:pb-20"
+      style={{ paddingBottom: "max(4rem, env(safe-area-inset-bottom))" }}
+    >
       <Header raceStart={schedule.race_start} lastReplan={schedule.last_finish} />
 
       <PitStrip
@@ -157,18 +160,18 @@ export function RaceScreen() {
           pending={busy}
         />
       ) : (
-        <section className="bg-[var(--color-panel)] border border-[var(--color-border)] rounded-[10px] py-16 px-8 text-center">
+        <section className="bg-[var(--color-panel)] border border-[var(--color-border)] rounded-[10px] py-12 px-6 sm:py-16 sm:px-8 text-center">
           <p className="text-sm text-[var(--color-muted)] mb-5 tracking-wide">
             Noch kein Plan erstellt.
           </p>
           <button
             onClick={handlePlan}
             disabled={busy}
-            className="bg-[var(--color-accent)] text-black font-medium px-5 py-2 rounded-md hover:brightness-110 disabled:opacity-50 transition"
+            className="bg-[var(--color-accent)] text-black font-medium px-6 py-3 sm:px-5 sm:py-2 rounded-md hover:brightness-110 disabled:opacity-50 transition min-h-[44px] w-full sm:w-auto"
           >
             {busy ? "Plane…" : "Plan erstellen"}
           </button>
-          <p className="text-[11px] tracking-[0.14em] uppercase text-[var(--color-muted)] mt-4">
+          <p className="text-[11px] tracking-[0.14em] uppercase text-[var(--color-muted)] mt-4 hidden lg:block">
             oder <span className="kbd">P</span> drücken
           </p>
         </section>
@@ -179,7 +182,7 @@ export function RaceScreen() {
       {helpOpen && <HelpOverlay onClose={() => setHelpOpen(false)} />}
 
       {error && schedule && (
-        <div className="fixed bottom-6 right-6 bg-[var(--color-panel)] border border-[var(--color-bad)] rounded-md px-4 py-3 max-w-md">
+        <div className="fixed bottom-4 right-4 left-4 sm:left-auto sm:bottom-6 sm:right-6 bg-[var(--color-panel)] border border-[var(--color-bad)] rounded-md px-4 py-3 sm:max-w-md">
           <p className="text-[11px] tracking-[0.14em] uppercase text-[var(--color-bad)] mb-1">Fehler</p>
           <p className="text-sm">{error}</p>
         </div>
@@ -190,19 +193,19 @@ export function RaceScreen() {
 
 function HintRow({ onReset }: { onReset: () => void }) {
   return (
-    <div className="flex gap-6 mt-5 text-[11px] tracking-[0.06em] text-[var(--color-muted)]">
-      <span>
+    <div className="flex items-center gap-6 mt-5 text-[11px] tracking-[0.06em] text-[var(--color-muted)]">
+      <span className="hidden lg:inline">
         <span className="kbd">↵</span> Eintragen &amp; Neu planen
       </span>
-      <span>
+      <span className="hidden lg:inline">
         <span className="kbd">R</span> Neu planen
       </span>
-      <span>
+      <span className="hidden lg:inline">
         <span className="kbd">?</span> Tastenkürzel
       </span>
       <button
         onClick={onReset}
-        className="ml-auto text-[var(--color-muted)] hover:text-[var(--color-bad)] transition"
+        className="ml-auto text-[var(--color-muted)] hover:text-[var(--color-bad)] transition py-2 min-h-[44px] lg:min-h-0 lg:py-0"
       >
         Plan zurücksetzen
       </button>
@@ -220,11 +223,11 @@ function HelpOverlay({ onClose }: { onClose: () => void }) {
   ];
   return (
     <div
-      className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50"
+      className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 p-4"
       onClick={onClose}
     >
       <div
-        className="bg-[var(--color-panel)] border border-[var(--color-border)] rounded-xl p-7 max-w-md w-full"
+        className="bg-[var(--color-panel)] border border-[var(--color-border)] rounded-xl p-6 sm:p-7 max-w-md w-full"
         onClick={(e) => e.stopPropagation()}
       >
         <h2 className="text-[11px] tracking-[0.14em] uppercase text-[var(--color-muted)] mb-4">
@@ -240,6 +243,12 @@ function HelpOverlay({ onClose }: { onClose: () => void }) {
             </div>
           ))}
         </dl>
+        <button
+          onClick={onClose}
+          className="mt-6 w-full sm:hidden bg-[var(--color-border)] hover:bg-[#2a2a2a] transition rounded-md py-3 text-sm min-h-[44px]"
+        >
+          Schließen
+        </button>
       </div>
     </div>
   );
