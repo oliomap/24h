@@ -24,8 +24,8 @@
   T: 2
   K: 5
   forbid_types: [HN]
-- name: Alicia                                                           # weakest in both; technical + longest distances both out of scope
+- name: Alicia                                                           # weakest in both; technical out of scope (H/HN), only the short half of E/EN
   T: 1
   K: 1
   forbid_types: [H, HN]
-  forbid_courses: [E7, EN7]
+  forbid_courses: [E5, E6, E7, EN5, EN6, EN7]

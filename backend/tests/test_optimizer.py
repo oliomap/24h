@@ -407,7 +407,7 @@ def test_rollout_tiebreaker_prefers_earlier_finish():
 
     legal = _legal(state2, now, c)
     runner = state2.runner_for_cycle(13)
-    candidates = _candidate_scores(state2, runner, legal, now, c)
+    candidates = _candidate_scores(state2, runner, legal, now, c, 13)
     assert candidates, "no candidates at cycle 13 — test setup is wrong"
     top = candidates[: c.ROLLOUT_TOP_K]
 
@@ -468,8 +468,10 @@ def test_forbid_courses_excluded_from_runner_candidates():
         "legal pool should include EN7 in the night phase after ST/LT done"
     )
 
-    # Christine: EN7 must be absent.
-    cands = _candidate_scores(state, christine, legal, now, c)
+    # Christine: EN7 must be absent. Pick a cycle in the post-twilight night
+    # window for the reservation logic to compute against.
+    cycle = 22
+    cands = _candidate_scores(state, christine, legal, now, c, cycle)
     assert all(course.code != "EN7" for _, course, _, _ in cands), (
         "Christine has EN7 in forbid_courses but it still appears as a candidate"
     )
@@ -479,7 +481,7 @@ def test_forbid_courses_excluded_from_runner_candidates():
     # not a global drop.
     hannes = next(r for r in team if r.name == "Hannes")
     assert "EN7" not in hannes.forbid_courses
-    cands_h = _candidate_scores(state, hannes, legal, now, c)
+    cands_h = _candidate_scores(state, hannes, legal, now, c, cycle)
     if any(course.code == "EN7" for _, course, _, _ in cands_h):
         pass  # expected case: EN7 visible to Hannes
     else:
@@ -488,7 +490,7 @@ def test_forbid_courses_excluded_from_runner_candidates():
         # it's not Christine. Re-verify with a far earlier `now`.
         early = c.TWILIGHT_TIME + timedelta(minutes=5)
         legal_e = _legal(state, early, c)
-        cands_h2 = _candidate_scores(state, hannes, legal_e, early, c)
+        cands_h2 = _candidate_scores(state, hannes, legal_e, early, c, cycle)
         assert any(course.code == "EN7" for _, course, _, _ in cands_h2), (
             "EN7 should be a candidate for Hannes at some legal night moment"
         )
@@ -514,7 +516,7 @@ def test_forbid_types_excluded_from_runner_candidates():
     day_now = c.RACE_START + timedelta(hours=4)
     legal_day = _legal(state, day_now, c)
     assert any(course.type == "H" for course in legal_day)
-    cands_day = _candidate_scores(state, alicia, legal_day, day_now, c)
+    cands_day = _candidate_scores(state, alicia, legal_day, day_now, c, 7)
     assert all(course.type != "H" for _, course, _, _ in cands_day), (
         "Alicia has 'H' in forbid_types but H courses still appear"
     )
@@ -524,9 +526,118 @@ def test_forbid_types_excluded_from_runner_candidates():
     night_now = c.TWILIGHT_TIME + timedelta(minutes=30)
     legal_night = _legal(state, night_now, c)
     assert any(course.type == "HN" for course in legal_night)
-    cands_night = _candidate_scores(state, alicia, legal_night, night_now, c)
+    cands_night = _candidate_scores(state, alicia, legal_night, night_now, c, 21)
     assert all(course.type != "HN" for _, course, _, _ in cands_night), (
         "Alicia has 'HN' in forbid_types but HN courses still appear"
+    )
+
+
+def test_reservation_triggers_when_constrained_teammate_is_tight():
+    """When a constrained teammate's allowed-in-legal pool shrinks to within
+    one of their remaining cycles, an unconstrained current runner should
+    yield those courses (extensions.md §4 reservation sub-feature).
+
+    Setup: late night phase, Alicia (forbidden H/HN/long-E/long-EN) has only
+    EN2, EN3, EN4 legal-and-allowed with two remaining cycles. Hannes
+    deciding at this moment must NOT see EN2/EN3/EN4 in his candidates —
+    they're reserved for Alicia.
+    """
+    from src.optimizer import _candidate_scores, _legal, _reserved_for_constrained_teammates
+
+    c = load_constants()
+    courses = load_courses()
+    team = load_team()
+
+    alicia = next(r for r in team if r.name == "Alicia")
+    hannes = next(r for r in team if r.name == "Hannes")
+    assert {"H", "HN"} <= alicia.forbid_types
+    assert "EN5" in alicia.forbid_courses and "EN6" in alicia.forbid_courses
+
+    # Construct a state late in the night phase: SF, all TH, ST, LT, all E,
+    # all H, and EN1 done. Alicia's legal-and-allowed pool is then exactly
+    # {EN2, EN3, EN4} — three courses, and she has two more cyclic slots
+    # ahead (slack = 1, the tight threshold).
+    state = empty_state(courses, team)
+    state.runners_in_order = team
+    state.completed_codes = {
+        "SF",
+        "TH1", "TH2", "TH3", "TH4", "TH5",
+        "E1", "E2", "E3", "E4", "E5", "E6", "E7",
+        "H1", "H2", "H3", "H4", "H5", "H6", "H7",
+        "ST", "LT", "EN1",
+    }
+    now = c.TWILIGHT_TIME + timedelta(minutes=60)
+
+    # Pin Alicia at slot 0 for determinism. With 6 runners, slot 0 → cycles
+    # 1, 7, 13, 19, 25, 31. At current_cycle=24, Alicia's future cycles in
+    # [24, 24 + len(course_pool)) are 25 and 31 → r_remaining = 2. Combined
+    # with her 3 allowed-in-legal codes that's slack = 1 (the tight edge).
+    state.runners_in_order = [alicia] + [r for r in team if r.name != "Alicia"]
+    current_cycle = 24  # decider is slot (24-1)%6 = 5 → 6th runner (not Alicia)
+
+    legal = _legal(state, now, c)
+    assert {"EN2", "EN3", "EN4"} <= {co.code for co in legal}
+
+    # The current decider is at slot 5 (not Alicia). They should see Alicia's
+    # remaining pool reserved.
+    decider = state.runners_in_order[5]
+    assert decider.name != "Alicia"
+    reserved = _reserved_for_constrained_teammates(
+        state, decider, current_cycle, legal, now, c
+    )
+    assert {"EN2", "EN3", "EN4"} <= reserved, (
+        f"Alicia is tight (3 allowed-legal vs 2 remaining cycles) but her pool "
+        f"{{'EN2','EN3','EN4'}} is not reserved. Got reserved={reserved}"
+    )
+
+    # End-to-end: candidate scoring for the decider does NOT include
+    # EN2/EN3/EN4 (they're reserved away to Alicia).
+    cands = _candidate_scores(state, decider, legal, now, c, current_cycle)
+    cand_codes = {course.code for _, course, _, _ in cands}
+    assert not (cand_codes & {"EN2", "EN3", "EN4"}), (
+        f"decider's candidates include Alicia-reserved courses: "
+        f"{cand_codes & {'EN2', 'EN3', 'EN4'}}"
+    )
+
+
+def test_reservation_falls_back_when_filtering_kills_all_candidates():
+    """Reservation is *advisory*. If the only legal courses are all reserved
+    for tighter teammates, the current runner must still get a candidate
+    (we don't halt the race over a soft constraint). The retry-without-
+    reservation pass in ``_candidate_scores`` provides this safety valve.
+    """
+    from src.optimizer import _candidate_scores, _legal
+
+    c = load_constants()
+    courses = load_courses()
+    team = load_team()
+
+    # Pathological setup: drive Alicia into deep tightness *and* deplete all
+    # non-Alicia options in the legal pool. The decider has zero options
+    # except Alicia's reserved set; fallback must return them.
+    alicia = next(r for r in team if r.name == "Alicia")
+    state = empty_state(courses, team)
+    state.runners_in_order = [alicia] + [r for r in team if r.name != "Alicia"]
+
+    # Complete everything except EN2/EN3/EN4. Now the only legal night
+    # courses are exactly Alicia's tight pool.
+    everything_except = {
+        c.code for c in courses.values()
+        if c.code not in {"EN2", "EN3", "EN4"}
+    }
+    state.completed_codes = everything_except
+
+    now = c.TWILIGHT_TIME + timedelta(minutes=60)
+    legal = _legal(state, now, c)
+    assert {co.code for co in legal} <= {"EN2", "EN3", "EN4"}
+
+    # Decider is *not* Alicia. With reservation strictly applied they'd see
+    # zero candidates; the fallback pass must rescue them.
+    decider = state.runners_in_order[1]  # slot 1, runs at cycle 2, 8, 14, ...
+    cands = _candidate_scores(state, decider, legal, now, c, 26)
+    assert cands, (
+        "fallback failed: reservation should retry without itself when it "
+        "filters out every legal candidate"
     )
 
 

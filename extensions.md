@@ -217,8 +217,9 @@ follow-up reweighting / hard-block options above are the next surgery.
 ## 4. Allowed-maps matrix — operator-driven course constraints
 
 **Status:** **implemented.** Per-runner course/type forbid-lists in
-`team.yaml`, filtered in `_candidate_scores`. Three independent filters
-now stack: phase machine → forbid matrix → cutoff fit.
+`team.yaml`, filtered in `_candidate_scores`. Four filters now stack:
+phase machine → forbid matrix → **course reservation for tighter
+teammates** → cutoff fit.
 
 ### Why it exists
 
@@ -250,8 +251,8 @@ or worse, get lost in the woods at 3 AM".
 - name: Alicia
   T: 1
   K: 1
-  forbid_types:   [H, HN]                    # T-mismatch on technical maps
-  forbid_courses: [E7, EN7]                  # + longest distances
+  forbid_types:   [H, HN]                              # T-mismatch on technical maps
+  forbid_courses: [E5, E6, E7, EN5, EN6, EN7]          # only the short half of E/EN
 ```
 
 Either key is optional; an absent or empty key means "no extra
@@ -283,13 +284,61 @@ forbids.
 3. [`backend/src/state.py`](backend/src/state.py) `load_team` — reads
    the optional lists, builds frozensets, attaches to the `Runner`.
 4. [`backend/src/optimizer.py`](backend/src/optimizer.py)
-   `_candidate_scores` — first line in the `for course in legal:` loop,
-   `continue` if `course.code in runner.forbid_courses or course.type in
-   runner.forbid_types`.
-5. Tests in [`backend/tests/test_optimizer.py`](backend/tests/test_optimizer.py):
+   `_candidate_scores` — two stacked filters in the `for course in legal:`
+   loop: `continue` on `runner.forbid_courses`/`runner.forbid_types`,
+   then `continue` on the reservation set returned by
+   `_reserved_for_constrained_teammates`. Two-pass retry-without-reservation
+   fallback if the first pass empties the candidate list.
+5. [`backend/src/optimizer.py`](backend/src/optimizer.py)
+   `_reserved_for_constrained_teammates` — the helper that computes
+   per-teammate tightness and the reserved set. `current_cycle` is
+   threaded through `_pick_best_course`, `_greedy_tail_count`, and
+   `_rollout_value` so the helper can count R's remaining cyclic slots.
+6. Tests in [`backend/tests/test_optimizer.py`](backend/tests/test_optimizer.py):
    `test_forbid_courses_excluded_from_runner_candidates`,
    `test_forbid_types_excluded_from_runner_candidates`,
-   `test_plan_honors_forbid_matrix_end_to_end`.
+   `test_plan_honors_forbid_matrix_end_to_end`,
+   `test_reservation_triggers_when_constrained_teammate_is_tight`,
+   `test_reservation_falls_back_when_filtering_kills_all_candidates`.
+
+### Course reservation (the sub-feature that makes tight forbid sets work)
+
+A naive forbid implementation halts the simulator at the constrained
+runner's late cycles: the score formula's `÷ time` term makes fast
+runners snipe short courses at *their* cycle, leaving only long maps for
+the constrained runner when her cycle comes around. The bounded rollout
+depth (3) can't see the halt 20 cycles ahead.
+
+`_reserved_for_constrained_teammates` closes the externality. At every
+decision point, for each teammate R:
+
+* `r_allowed` = R's allowed courses **intersected with the currently
+  legal pool**. (Cross-phase counting inflates slack — Alicia's night
+  options are irrelevant to a day-phase decision.)
+* `r_remaining` = R's cyclic slot positions in the remaining-cycles
+  window, bounded by `len(course_pool)` (no course repeats, rule §3).
+* `r_slack = r_allowed - r_remaining`.
+
+A teammate R is *tight* when `r_slack <= 1`. The current runner yields
+R's allowed pool only when R is *strictly tighter* than the current
+runner (`my_slack > r_slack`) — so a tight caller never starves itself
+for an even tighter teammate. The reservation is **advisory**:
+`_candidate_scores` retries without it if every candidate ends up
+filtered, so we never halt the race over a soft constraint.
+
+Measured impact on the pre-race plan with the current team.yaml:
+
+| Configuration | Cycles | Slack | Alicia's longest leg |
+|---|---|---|---|
+| No forbids beyond `[E7, EN7]` for Alicia | 34 | +11 min | E6 / 6.9 km / 73 min |
+| Tight forbids (`E5-E7, EN5-EN7`), no reservation | 32 | +146 min | E4 / 4.8 km / 53 min |
+| Tight forbids **+ reservation** | **34** | **+33 min** | **EN2 / 3.6 km / 48 min** |
+
+The km distribution also lands monotone-ish in K (Hannes K=6: 36 km;
+Alicia K=1: 15 km) as a side effect — the reservation forces long maps
+onto the fittest runners since they can no longer snipe short ones.
+This partially mitigates §3 (stamina nonlinearity); §3 is still worth
+implementing for smooth in-scope load redistribution.
 
 ### Caveats / what's still open
 
@@ -310,6 +359,13 @@ forbids.
   has to guess that a forbid is too aggressive. A debug log line in
   `_candidate_scores` ("runner X had 0 candidates at cycle N: all
   legal courses forbidden") would help — not wired yet.
+- **Reservation tuning.** The `r_slack <= 1` tightness threshold and
+  the legal-pool-intersection definition of `r_allowed` were chosen
+  empirically (the alternatives — full-pool counts, slack <= 2, time-
+  based remaining-cycle estimates — each broke either the pre-race
+  plan or the replan-after-fast-finishes test). Future maintainers
+  adjusting these should regenerate `python main.py plan` and rerun
+  the optimizer test suite to spot regressions before shipping.
 
 ### Synergy with §3 (stamina)
 

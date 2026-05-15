@@ -100,12 +100,113 @@ def _risk_adjusted_minutes(
     return mean
 
 
+# Phase-restricted singleton course types — they appear once in the pool and
+# their phase position is dictated by the rules, not by free choice. Counting
+# them in a constrained runner's "allowed remaining" overstates that runner's
+# real options (FF only unlocks at the very end; SF only fires at cycle 1).
+_PHASE_SINGLETON_TYPES = frozenset({"SF", "FF"})
+
+
+def _reserved_for_constrained_teammates(
+    state: RaceState,
+    current_runner: Runner,
+    current_cycle: int,
+    legal: list[Course],
+    now: datetime,
+    constants: Constants,
+) -> set[str]:
+    """Courses ``current_runner`` should yield to tighter teammates.
+
+    The score formula's ``÷ time`` term makes fast runners systematically
+    prefer short courses at their own cycle — exactly the courses a runner
+    with tight forbid lists (e.g. Alicia: H/HN/long-E/long-EN blocked) needs.
+    The bounded rollout depth can't see the eventual halt 20 cycles ahead, so
+    by the time the constrained runner's cycle comes around, all of her short
+    options have been swept by faster teammates and the simulator stops.
+
+    This helper closes that long-horizon externality. For each teammate R:
+
+      * ``r_allowed`` = R's allowed courses *intersected with the currently
+        legal pool*. Counting R's full cross-phase allowed set inflates
+        slack — e.g. Alicia at cycle 8 has 3 short-E options legal *right
+        now* but 9 if you also count her ST/LT/EN options that won't unlock
+        until twilight/night. The immediate-phase number is what governs
+        whether other runners can safely take from her pool today; her
+        night allowance is irrelevant to a day-phase decision.
+      * ``r_remaining`` = how many of R's cyclic slots fall in the
+        remaining-cycles window, bounded structurally by ``len(course_pool)``
+        (no course repeats, rule §3).
+      * ``r_slack = r_allowed - r_remaining``.
+
+    A teammate R is *tight* when ``r_slack <= 1`` — at most one spare beyond
+    what they need. The current runner yields R's allowed pool **only when
+    R is strictly tighter than the current runner** (``my_slack > r_slack``),
+    so a tight caller never starves itself for an even tighter teammate.
+
+    The reservation is advisory: ``_candidate_scores`` retries without it if
+    every candidate ends up filtered out, so we never halt the race over a
+    soft constraint.
+    """
+    if not state.runners_in_order:
+        return set()
+
+    n_runners = len(state.runners_in_order)
+
+    if (constants.CUTOFF_TIME - now).total_seconds() <= 0:
+        return set()
+
+    # Structural bound on remaining cycles: no course repeats (rule §3) caps
+    # the entire race at ``len(course_pool)`` cycles. Estimating from avg
+    # past duration (the obvious approach) blew up in the few-fast-legs
+    # replan case — six TH+SF legs at 0.7× pace extrapolated to ~67 cycles
+    # of slack, inflated per-runner remaining counts, drove every constrained
+    # teammate's slack negative, and over-reserved. The structural bound
+    # decouples reservation from short-term pace noise.
+    team_remaining_cycles = max(0, len(state.course_pool) - (current_cycle - 1))
+    if team_remaining_cycles <= 0:
+        return set()
+
+    # Per-runner status snapshot.
+    status: dict[str, tuple[int, int, frozenset[str]]] = {}
+    for idx, r in enumerate(state.runners_in_order):
+        r_remaining = sum(
+            1
+            for k in range(current_cycle, current_cycle + team_remaining_cycles)
+            if (k - 1) % n_runners == idx
+        )
+        # Intersect with the currently legal pool — phase-relevance matters.
+        # ``legal`` already excludes courses outside the current phase, done
+        # courses, and forbidden-by-phase-machine entries.
+        r_allowed = frozenset(
+            c.code
+            for c in legal
+            if c.code not in r.forbid_courses
+            and c.type not in r.forbid_types
+            and c.type not in _PHASE_SINGLETON_TYPES
+        )
+        status[r.name] = (len(r_allowed), r_remaining, r_allowed)
+
+    my_allowed_count, my_remaining, _ = status[current_runner.name]
+    my_slack = my_allowed_count - my_remaining
+
+    reserved: set[str] = set()
+    for r in state.runners_in_order:
+        if r.name == current_runner.name:
+            continue
+        r_allowed_count, r_remaining, r_allowed_codes = status[r.name]
+        r_slack = r_allowed_count - r_remaining
+        if r_slack <= 1 and my_slack > r_slack:
+            reserved |= r_allowed_codes
+    return reserved
+
+
 def _candidate_scores(
     state: RaceState,
     runner: Runner,
     legal: list[Course],
     now: datetime,
     constants: Constants,
+    current_cycle: int,
 ) -> list[tuple[float, Course, float, float]]:
     """Return (score, course, mean, sigma) for each legal course that fits before cutoff.
 
@@ -128,42 +229,59 @@ def _candidate_scores(
     handover = timedelta(seconds=constants.HANDOVER_OVERHEAD_SEC).total_seconds() / 60.0
     other_runners = [r for r in state.runners_in_order if r.name != runner.name]
 
+    # Reservation: courses to yield to tighter teammates (extensions.md §4).
+    # First pass tries with reservation; if it filters out everything, fall
+    # back to a pass without reservation so we never halt over a soft hint.
+    reserved_initial = _reserved_for_constrained_teammates(
+        state, runner, current_cycle, legal, now, constants
+    )
+    passes = [reserved_initial, set()] if reserved_initial else [set()]
+
     safe: list[tuple[float, Course, float, float]] = []
     unsafe_day: list[tuple[float, Course, float, float]] = []
-    for course in legal:
-        # Per-runner hard blocks the time model can't express (coach knowledge:
-        # injury, navigation fear, distance limit). Stacks on top of the phase
-        # machine and the cutoff filter — three independent filters, each
-        # surgically scoped. See extensions.md §4.
-        if course.code in runner.forbid_courses or course.type in runner.forbid_types:
-            continue
-        mean, sigma = predict_time(runner, course, constants, mult)
-        if now + timedelta(minutes=mean) > constants.CUTOFF_TIME:
-            continue
-        adj = _risk_adjusted_minutes(
-            mean, sigma, now, constants.CUTOFF_TIME, constants.SAFETY_SIGMA_THRESHOLD
-        )
-        if now + timedelta(minutes=adj) > constants.CUTOFF_TIME:
-            continue
+    for reserved in passes:
+        safe = []
+        unsafe_day = []
+        for course in legal:
+            # Per-runner hard blocks the time model can't express (coach knowledge:
+            # injury, navigation fear, distance limit). Stacks on top of the phase
+            # machine and the cutoff filter — three independent filters, each
+            # surgically scoped. See extensions.md §4.
+            if course.code in runner.forbid_courses or course.type in runner.forbid_types:
+                continue
+            # Soft reservation for tighter constrained teammates. Skipped on
+            # the fallback pass (when reserved == set()).
+            if course.code in reserved:
+                continue
+            mean, sigma = predict_time(runner, course, constants, mult)
+            if now + timedelta(minutes=mean) > constants.CUTOFF_TIME:
+                continue
+            adj = _risk_adjusted_minutes(
+                mean, sigma, now, constants.CUTOFF_TIME, constants.SAFETY_SIGMA_THRESHOLD
+            )
+            if now + timedelta(minutes=adj) > constants.CUTOFF_TIME:
+                continue
 
-        if other_runners:
-            other_means = []
-            for r in other_runners:
-                m_r = state.pace_multiplier.get(r.name, 1.0)
-                t, _ = predict_time(r, course, constants, m_r)
-                other_means.append(t)
-            other_means.sort()
-            median_other = other_means[len(other_means) // 2]
-            advantage = median_other / mean
-        else:
-            advantage = 1.0
+            if other_runners:
+                other_means = []
+                for r in other_runners:
+                    m_r = state.pace_multiplier.get(r.name, 1.0)
+                    t, _ = predict_time(r, course, constants, m_r)
+                    other_means.append(t)
+                other_means.sort()
+                median_other = other_means[len(other_means) // 2]
+                advantage = median_other / mean
+            else:
+                advantage = 1.0
 
-        score = advantage / (adj + handover)
-        record = (score, course, mean, sigma)
-        if _day_course_unsafe(course, now, mean, sigma, constants):
-            unsafe_day.append(record)
-        else:
-            safe.append(record)
+            score = advantage / (adj + handover)
+            record = (score, course, mean, sigma)
+            if _day_course_unsafe(course, now, mean, sigma, constants):
+                unsafe_day.append(record)
+            else:
+                safe.append(record)
+        if safe or unsafe_day:
+            break
 
     safe.sort(key=lambda x: x[0], reverse=True)
     if safe:
@@ -190,7 +308,7 @@ def _greedy_tail_count(
         if not legal:
             break
         runner = state.runner_for_cycle(cycle)
-        cands = _candidate_scores(state, runner, legal, now, constants)
+        cands = _candidate_scores(state, runner, legal, now, constants, cycle)
         if not cands:
             break
         _, course, mean, _sigma = cands[0]
@@ -212,7 +330,7 @@ def _pick_best_course(
     if not legal:
         return None
     runner = state.runner_for_cycle(cycle)
-    candidates = _candidate_scores(state, runner, legal, now, constants)
+    candidates = _candidate_scores(state, runner, legal, now, constants, cycle)
     if not candidates:
         return None
 
@@ -262,7 +380,7 @@ def _rollout_value(
         if not legal:
             break
         runner = local_state.runner_for_cycle(local_cycle)
-        candidates = _candidate_scores(local_state, runner, legal, local_now, constants)
+        candidates = _candidate_scores(local_state, runner, legal, local_now, constants, local_cycle)
         if not candidates:
             break
         # Single-level expansion of the best by score (no further recursion to keep cost bounded).
