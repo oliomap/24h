@@ -66,6 +66,81 @@ CLI and UI share `backend/data/schedule.csv` — they can be mixed freely.
 
 ---
 
+## Production deployment
+
+Live at <https://oliomap.ch>, served from a Hetzner Cloud VM (IPv4 `178.104.82.181`,
+IPv6 `2a01:4f8:1c19:1957::1`). Caddy 2 terminates TLS and reverse-proxies the apex;
+systemd manages the app processes.
+
+```
+[browser] ─https─▶ Caddy ─loopback─┬─/api/*─▶ 127.0.0.1:8000   uvicorn (24h-backend.service)
+                                   └─/*─────▶ 127.0.0.1:3000   next start (24h-frontend.service)
+
+state:    backend/data/schedule.csv     (single source of truth, atomic writes)
+backups:  ~/24h-backups/                (24h-backup.timer, every 5 min)
+units:    /etc/systemd/system/24h-{backend,frontend,backup}.{service,timer}
+caddy:    /etc/caddy/Caddyfile
+stage:    ~/24h-deploy-staging/         (originals of all units + Caddyfile + deploy.sh; NOT in this repo)
+```
+
+### Redeploy after code changes
+
+On the server, from this repo's root:
+
+```bash
+git pull
+
+# Backend changes (Python / requirements.txt / config YAML):
+cd backend && .venv/bin/pip install -r requirements.txt && cd ..
+
+# Frontend changes (TSX / package.json):
+cd frontend && PATH=$HOME/.nvm/versions/node/v22.22.1/bin:$PATH \
+  npm install && npm run build && cd ..
+
+# Restart whatever changed:
+sudo systemctl restart 24h-backend                # backend only
+sudo systemctl restart 24h-frontend               # frontend only
+sudo systemctl restart 24h-backend 24h-frontend   # both
+```
+
+`backend/config/*.yaml`-only edits (e.g. `TWILIGHT_TIME` on race day): no rebuild
+needed — just `sudo systemctl restart 24h-backend`.
+
+### Health, logs, rollback
+
+```bash
+# Status
+systemctl is-active 24h-backend 24h-frontend caddy 24h-backup.timer
+
+# Live logs
+journalctl -u 24h-backend -f
+journalctl -u 24h-frontend -f
+sudo journalctl -u caddy -f
+
+# Restore schedule.csv from a snapshot
+ls ~/24h-backups/
+cp ~/24h-backups/schedule-YYYYMMDDTHHMMSSZ.csv backend/data/schedule.csv
+sudo systemctl restart 24h-backend
+
+# Roll back to a tagged commit, then rebuild + restart as above
+git fetch --tags && git checkout pre-race-2026-05-16
+```
+
+### Notes
+
+- `frontend/.env.production` (with empty `NEXT_PUBLIC_API_BASE_URL=`) is required
+  on the server at build time so the client uses relative `/api/...` URLs. It's
+  gitignored — recreate with
+  `printf 'NEXT_PUBLIC_API_BASE_URL=\n' > frontend/.env.production` if it ever
+  goes missing.
+- The Hetzner Cloud firewall (in the Cloud Console) sits **upstream** of UFW —
+  both must allow inbound 22/80/443.
+- `unattended-upgrades` is disabled during the race window. Re-enable after:
+  `sudo systemctl enable --now unattended-upgrades.service apt-daily.timer apt-daily-upgrade.timer`.
+- Caddy auto-renews the Let's Encrypt cert (~30 days before expiry).
+
+---
+
 ## How the optimization works
 
 The race is a sequence of cycles; each cycle one runner starts one course
