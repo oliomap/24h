@@ -454,15 +454,14 @@ for the v1:
 
 ## 9. Search quality knobs that are turned conservatively
 
-- `STARTING_ORDER_PRUNE_TOP_N = 60` (of 720) — we full-rollout-simulate
-  the top 60 cheap-evaluated starting orders. Race-day machine is fine,
-  so this could be raised to 120 or 200 for a small gain at the cost of
-  a slower `plan()`.
 - `ROLLOUT_DEPTH = 3`, `ROLLOUT_TOP_K = 3` — the recursion budget per
   decision point. Beam-search depth of 4–5 with a wider top-K would
   almost certainly find better tails, especially near the cutoff where
   one extra cycle is high-value.
-- Both expand the optimizer's search; nothing else changes.
+- Starting-order search is no longer a knob: rule §4 locks the cyclic
+  rotation pre-race, so the order in `team.yaml` is what runs. Was once
+  a 720-perm enumeration with a `STARTING_ORDER_PRUNE_TOP_N` cap; removed
+  when the team fixed the order.
 
 ---
 

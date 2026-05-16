@@ -1,10 +1,7 @@
 from __future__ import annotations
 
-import copy
-import itertools
-from dataclasses import replace
 from datetime import datetime, timedelta
-from typing import Iterable, Optional
+from typing import Optional
 
 from .models import Assignment, Constants, Course, RaceState, Runner
 from .phases import DAY_TYPES, legal_next_courses
@@ -442,57 +439,17 @@ def simulate(
     return state
 
 
-def _starter_heuristic_score(runner: Runner) -> float:
-    # Higher = better starter. Mix K and T with K dominant (SF rewards speed in a crowd).
-    return runner.K * 1.5 + runner.T
-
-
 def plan(
     base_state: RaceState,
     all_runners: list[Runner],
     constants: Constants,
 ) -> RaceState:
-    """Pre-race plan. Search over starting orders.
-
-    Strategy: enumerate all 720 permutations but only run a full rollout simulation
-    for the top STARTING_ORDER_PRUNE_TOP_N as ranked by a cheap "shallow" simulate
-    (rollout_depth=0). This keeps plan() under ~10 s on a laptop while still
-    exploring the search space broadly.
+    """Pre-race plan. The cyclic dispatch order is fixed by ``all_runners``
+    (i.e. the order in ``team.yaml``) — rule §4 locks the rotation pre-race,
+    so we no longer search over starting-order permutations. ``simulate`` is
+    called once with the given order and the full rollout depth.
     """
-    perms = list(itertools.permutations(all_runners))
-
-    # Phase 1: cheap shallow simulation for every permutation.
-    shallow_results: list[tuple[int, float, tuple[Runner, ...]]] = []
-    for order in perms:
-        out = simulate(base_state, list(order), constants, rollout_depth=0)
-        count = sum(1 for a in out.assignments if a.status == "planned")
-        finish_min = (
-            (out.assignments[-1].planned_finish - constants.RACE_START).total_seconds() / 60.0
-            if out.assignments else 0.0
-        )
-        shallow_results.append((count, finish_min, order))
-
-    # Rank: most courses, then earliest finish.
-    shallow_results.sort(key=lambda r: (-r[0], r[1]))
-    top_n = shallow_results[: max(1, constants.STARTING_ORDER_PRUNE_TOP_N)]
-
-    # Phase 2: full-depth rollout for top candidates.
-    best_state: Optional[RaceState] = None
-    best_metric: tuple[int, float] = (-1, float("inf"))
-    for _, _, order in top_n:
-        out = simulate(base_state, list(order), constants)
-        count = sum(1 for a in out.assignments if a.status == "planned")
-        finish_min = (
-            (out.assignments[-1].planned_finish - constants.RACE_START).total_seconds() / 60.0
-            if out.assignments else 0.0
-        )
-        metric = (count, finish_min)
-        if (metric[0], -metric[1]) > (best_metric[0], -best_metric[1]):
-            best_metric = metric
-            best_state = out
-
-    assert best_state is not None
-    return best_state
+    return simulate(base_state, all_runners, constants)
 
 
 def replan(state_with_history: RaceState, constants: Constants) -> RaceState:

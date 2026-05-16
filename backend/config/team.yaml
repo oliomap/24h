@@ -3,6 +3,10 @@
 # Tweak these mid-race if a runner is clearly above/below their listed level
 # (online recalibration handles small drift automatically).
 #
+# The listed order IS the cyclic dispatch order (rule §4 — fixed by the team
+# pre-race). Cycle 1 → runner 1, cycle 7 → runner 1, etc. The optimiser does
+# not search permutations; reorder this list to change who runs when.
+#
 # Optional per-runner hard blocks (operator/coach knowledge the time model
 # can't represent — injury, distance limit, night-nav fear). The optimiser
 # drops these from the runner's candidate list regardless of score:
@@ -13,8 +17,8 @@
 # cyclic order is locked, so blocking them on the runner whose cycle they
 # fall in halts the simulator there.
 
-- {name: Sofia,     T: 6, K: 4}                                          # ex-national, best orienteer, 5 yrs out
 - {name: Hannes,    T: 3, K: 6}                                          # triathlete, best fitness — handles long & night
+- {name: Sofia,     T: 6, K: 4}                                          # ex-national, best orienteer, 5 yrs out
 - {name: Erich,     T: 5, K: 3}                                          # strong nav, mid stamina
 - name: Christine                                                        # K=2: longest course in each pool is out of scope
   T: 4

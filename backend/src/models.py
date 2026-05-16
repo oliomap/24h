@@ -46,7 +46,6 @@ class Constants:
     SAFETY_SIGMA_THRESHOLD: float
     ROLLOUT_TOP_K: int
     ROLLOUT_DEPTH: int
-    STARTING_ORDER_PRUNE_TOP_N: int
     CALIBRATION_ALPHA: float
     COURSE_T_BY_TYPE: dict[str, int]
     # Safety bounds for the per-runner pace multiplier. A single outlier

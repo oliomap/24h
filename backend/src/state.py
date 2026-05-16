@@ -51,7 +51,6 @@ def load_constants(path: Optional[Path] = None) -> Constants:
         SAFETY_SIGMA_THRESHOLD=float(data["SAFETY_SIGMA_THRESHOLD"]),
         ROLLOUT_TOP_K=int(data["ROLLOUT_TOP_K"]),
         ROLLOUT_DEPTH=int(data["ROLLOUT_DEPTH"]),
-        STARTING_ORDER_PRUNE_TOP_N=int(data["STARTING_ORDER_PRUNE_TOP_N"]),
         CALIBRATION_ALPHA=float(data["CALIBRATION_ALPHA"]),
         COURSE_T_BY_TYPE=dict(data["COURSE_T_BY_TYPE"]),
         PACE_MULTIPLIER_MIN=float(data.get("PACE_MULTIPLIER_MIN", 0.4)),

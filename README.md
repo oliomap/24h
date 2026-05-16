@@ -43,8 +43,9 @@ Open <http://localhost:3000>.
 
 ### Race-day loop
 
-1. First load: click **Plan erstellen** (or press `P`). The optimizer searches
-   starting orders and writes `backend/data/schedule.csv`.
+1. First load: click **Plan erstellen** (or press `P`). The optimizer runs
+   the cyclic order set in `backend/config/team.yaml` and writes
+   `backend/data/schedule.csv`.
 2. As each runner crosses the line: type the actual minutes into the
    highlighted row, press <kbd>↵</kbd>. The runner's pace multiplier is
    recalibrated and the remaining cycles are re-optimised.
@@ -241,10 +242,9 @@ legal map.
 
 Selecting the next course:
 
-- **`plan()`** — pre-race. Enumerate all 720 starting-order permutations,
-  cheap-simulate each (`rollout_depth=0`), keep the top
-  `STARTING_ORDER_PRUNE_TOP_N`, full-simulate those, pick the winner by
-  rule §9 metric (most courses, then earliest finish).
+- **`plan()`** — pre-race. The cyclic dispatch order is fixed by the runner
+  list in `team.yaml` (rule §4 locks the rotation pre-race), so `plan()`
+  runs a single full-depth `simulate()` against that order.
 - **`replan()`** — after a finish. Keep the done legs as anchors, re-simulate
   the tail from the actual finish time of the last done leg.
 - **`simulate()`** — `_pick_best_course` evaluates the top-K candidates by
@@ -298,7 +298,6 @@ the UI.
 | `SAFETY_SIGMA_THRESHOLD` | `2.0` | Switch a candidate's risk-adjusted finish from `mean` to `mean+σ` when slack to cutoff is below `threshold × σ`. |
 | `ROLLOUT_TOP_K` | `3` | Number of top-scored candidates expanded with a deeper rollout per decision point. Bigger = slower but searches wider. |
 | `ROLLOUT_DEPTH` | `3` | Extra cycles to expand recursively before falling back to greedy continuation. |
-| `STARTING_ORDER_PRUNE_TOP_N` | `60` | Of the 720 starting-order permutations, this many get the full rollout simulation; the rest are kept-or-dropped on the cheap pass. Bigger = slower `plan()` but better starting order. |
 | `CALIBRATION_ALPHA` | `0.4` | EWMA weight for a new actual-time observation when updating a runner's pace multiplier. Higher = react faster, more jitter. |
 | `PACE_MULTIPLIER_MIN/MAX` | `0.4 / 2.5` | Hard clamps on the per-runner multiplier (per-observation *and* after blending). Stops a single outlier finish from disabling a runner. |
 | `COURSE_T_BY_TYPE` | `{SF:2, TH:3, E:2, H:5, ST:2, LT:2, EN:3, HN:5, FF:5}` | Per-type default technicality (1..6), used by the navigation-penalty term. Tweak when courses are visibly harder/easier than their type implies. |

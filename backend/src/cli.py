@@ -129,8 +129,10 @@ def cmd_plan(argv: list[str]) -> int:
             return 2
 
     base = empty_state(courses, team)
-    print(f"Searching starting orders for {len(team)} runners "
-          f"({len(courses)} courses)…")
+    print(
+        f"Planning {len(courses)} courses for {len(team)} runners "
+        f"(cyclic order: {', '.join(r.name for r in team)})…"
+    )
     out = plan_fn(base, team, constants)
     save_state(out, SCHEDULE_CSV)
     _print_schedule(out, constants, header="\n=== Pre-race plan ===")
